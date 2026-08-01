@@ -78,7 +78,7 @@ If reporting is not configured, say so once and carry on with the real work.
 | Variable | Required | Meaning |
 | --- | --- | --- |
 | `AGENTMAGNIFY_TOKEN` | no | Overrides the stored credential. Never print it, never echo it, never write it into a file you create. |
-| `AGENTMAGNIFY_API_URL` | no | API base URL. Defaults to `http://localhost:4000`. |
+| `AGENTMAGNIFY_API_URL` | no | API base URL. Defaults to `https://api.agentmagnify.com`. Set it for a self-hosted installation. |
 | `AGENTMAGNIFY_PROJECT_NAME` | no | Overrides the inferred project name. Only meaningful with a `wsi_live_` token; a `prj_live_` token is already bound to one project. |
 
 Optional, rarely needed: `AGENTMAGNIFY_AGENT_ID`, `AGENTMAGNIFY_AGENT_ROLE`,

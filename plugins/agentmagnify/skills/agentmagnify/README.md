@@ -213,7 +213,7 @@ need.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AGENTMAGNIFY_TOKEN` | - | Required to report. Never printed. |
-| `AGENTMAGNIFY_API_URL` | `http://localhost:4000` | API base URL. |
+| `AGENTMAGNIFY_API_URL` | `https://api.agentmagnify.com` | API base URL. Set it for a self-hosted installation. |
 | `AGENTMAGNIFY_PROJECT_NAME` | - | Project name, workspace ingestion tokens only. |
 | `AGENTMAGNIFY_AGENT_ID` | `main-agent` | Default reporter id. |
 | `AGENTMAGNIFY_AGENT_ROLE` | - | Default reporter role. |

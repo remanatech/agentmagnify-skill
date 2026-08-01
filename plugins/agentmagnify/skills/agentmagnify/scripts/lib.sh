@@ -25,6 +25,25 @@ fi
 AT_LIB_SOURCED=1
 
 # ---------------------------------------------------------------------------
+# Where the service is
+# ---------------------------------------------------------------------------
+
+# The hosted API, and the default for every script here.
+#
+# It used to be http://localhost:4000, written out separately in lib.sh,
+# login.sh and pair.sh. That was right while the only installation was the one
+# on the developer's own machine and wrong the moment the service went live:
+# somebody who runs `npx agentmagnify install` and then `pair.sh` has no
+# monitoring API on their laptop, so the default pointed the entire onboarding
+# path at a port nobody was listening on.
+#
+# Defined once because three copies of an address is three chances to move two
+# of them. Self-hosted installations set AGENTMAGNIFY_API_URL, and local
+# development passes --api-url http://localhost:4000, which is what the
+# repository's own instructions have always done.
+AT_DEFAULT_API_URL="https://api.agentmagnify.com"
+
+# ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
@@ -343,7 +362,7 @@ at_load_config() {
   [ -z "$AT_PROJECT_NAME" ] && AT_PROJECT_NAME="$(at_infer_project_name)"
   export AGENTMAGNIFY_PROJECT_NAME="$AT_PROJECT_NAME"
 
-  AT_API_URL="${AGENTMAGNIFY_API_URL:-http://localhost:4000}"
+  AT_API_URL="${AGENTMAGNIFY_API_URL:-$AT_DEFAULT_API_URL}"
   AT_API_URL="${AT_API_URL%/}"
   AT_TIMEOUT="${AGENTMAGNIFY_TIMEOUT_SECONDS:-10}"
   AT_MAX_RETRIES="${AGENTMAGNIFY_MAX_RETRIES:-2}"

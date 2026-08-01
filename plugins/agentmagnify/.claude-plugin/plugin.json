@@ -9,6 +9,7 @@
   },
   "homepage": "https://github.com/remanatech/agentmagnify-skill",
   "repository": "https://github.com/remanatech/agentmagnify-skill",
+  "license": "MIT",
   "keywords": [
     "monitoring",
     "reporting",

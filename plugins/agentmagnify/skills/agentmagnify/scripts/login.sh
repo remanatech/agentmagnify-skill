@@ -17,11 +17,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 usage() {
-  cat <<'USAGE'
+  # The URL is substituted rather than written out, and the heredoc stays
+  # quoted: unquoting it would expand every $ and backtick in the help text,
+  # and there is at least one backtick in it. One source of truth, and no
+  # second copy to drift -- the first attempt put `$AT_DEFAULT_API_URL` inside
+  # a quoted heredoc and printed the variable's name to the user.
+  cat <<'USAGE' | sed "s|__DEFAULT_API_URL__|$AT_DEFAULT_API_URL|g"
 Usage: login.sh <token> [--api-url URL] [--project] [--status] [--logout]
 
   <token>            prj_live_… , wsi_live_… or ro_live_… from the panel
-  --api-url URL      monitoring API base URL (default: http://localhost:4000)
+  --api-url URL      monitoring API base URL (default: __DEFAULT_API_URL__)
   --project          store it for THIS project only, in .agentmagnify.local.json
   --status           show where a token would be read from, without printing it
   --logout           remove the stored credential
@@ -96,7 +101,7 @@ case "$TOKEN" in
   *) at_die "that does not look like a monitoring token (expected prj_live_…, wsi_live_… or ro_live_…)" ;;
 esac
 
-API_URL="${API_URL:-${AGENTMAGNIFY_API_URL:-http://localhost:4000}}"
+API_URL="${API_URL:-${AGENTMAGNIFY_API_URL:-$AT_DEFAULT_API_URL}}"
 API_URL="${API_URL%/}"
 
 # Prove the token works before storing it. Writing a dead credential and only

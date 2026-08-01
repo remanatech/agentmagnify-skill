@@ -31,10 +31,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 usage() {
-  cat <<'USAGE'
+  # The URL is substituted rather than written out, and the heredoc stays
+  # quoted: unquoting it would expand every $ and backtick in the help text,
+  # and there is at least one backtick in it. One source of truth, and no
+  # second copy to drift -- the first attempt put `$AT_DEFAULT_API_URL` inside
+  # a quoted heredoc and printed the variable's name to the user.
+  cat <<'USAGE' | sed "s|__DEFAULT_API_URL__|$AT_DEFAULT_API_URL|g"
 Usage: pair.sh [--api-url URL] [--project] [--timeout SECONDS]
 
-  --api-url URL      monitoring API base URL (default: http://localhost:4000)
+  --api-url URL      monitoring API base URL (default: __DEFAULT_API_URL__)
   --project          store the token for THIS project only, in
                      .agentmagnify.local.json, instead of once per machine
   --timeout SECONDS  give up waiting for approval (default: 600)
@@ -68,7 +73,7 @@ esac
 
 at_require_deps
 
-API_URL="${API_URL:-${AGENTMAGNIFY_API_URL:-http://localhost:4000}}"
+API_URL="${API_URL:-${AGENTMAGNIFY_API_URL:-$AT_DEFAULT_API_URL}}"
 API_URL="${API_URL%/}"
 
 # Loaded with the token deliberately cleared. A machine that already has a

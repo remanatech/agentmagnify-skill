@@ -904,6 +904,43 @@ section "installer"
 # stated requirements are bash, curl and jq or python3 -- node is the
 # installer's dependency, not the skill's.
 
+
+# ---------------------------------------------------------------------------
+# The default points at the service, not at the developer's own machine
+# ---------------------------------------------------------------------------
+#
+# This defaulted to http://localhost:4000 while the only installation was a
+# developer's, and stayed correct right up until there was something to
+# install from. After that it aimed the whole onboarding path -- install, pair,
+# report -- at a port nobody outside this repository is listening on, and the
+# failure would look like a broken product rather than a wrong address.
+#
+# Three scripts resolve it and the help text prints it, so this pins the
+# resolution rather than the constant: a change that fixes lib.sh and leaves
+# a copy behind still fails here.
+
+# No `case` in any of these: a pattern's `)` closes the enclosing $( ) early,
+# which is a syntax error rather than a failed check, and reads as one.
+check "the default API URL is the hosted service" \
+  "$( [ "${AT_DEFAULT_API_URL#https://}" != "$AT_DEFAULT_API_URL" ] && echo 0 || echo 1 )" \
+  "AT_DEFAULT_API_URL is '$AT_DEFAULT_API_URL'"
+
+AT_RESOLVED_DEFAULT="$(env -u AGENTMAGNIFY_API_URL bash -c '
+  . "'"$AT_LIB_DIR"'/lib.sh"
+  at_load_config >/dev/null 2>&1
+  printf "%s" "$AT_API_URL"
+')"
+check "and that is what a script with no environment actually resolves to" \
+  "$( [ "$AT_RESOLVED_DEFAULT" = "$AT_DEFAULT_API_URL" ] && echo 0 || echo 1 )" \
+  "resolved '$AT_RESOLVED_DEFAULT', expected '$AT_DEFAULT_API_URL'"
+
+for SCRIPT_WITH_USAGE in pair.sh login.sh; do
+  USAGE_TEXT="$(bash "$AT_LIB_DIR/$SCRIPT_WITH_USAGE" --help 2>&1 || true)"
+  check "$SCRIPT_WITH_USAGE prints the address rather than the variable's name" \
+    "$( [ "${USAGE_TEXT#*"$AT_DEFAULT_API_URL"}" != "$USAGE_TEXT" ] && echo 0 || echo 1 )" \
+    "$(printf '%s' "$USAGE_TEXT" | grep -i 'api-url' | head -1)"
+done
+
 INSTALLER_BIN="$AT_SKILL_ROOT/../installer/bin/agentmagnify.mjs"
 
 if [ "${AGENTMAGNIFY_SKIP_INSTALLER_CHECKS:-0}" = "1" ]; then
