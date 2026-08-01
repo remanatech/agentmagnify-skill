@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "agentmagnify",
+  "description": "Report live project state to AgentMagnify. Ships the agentmagnify skill: session handshake, main-agent and sub-agent reporting rules, the Project Observer, and an offline event queue that never stops development.",
+  "version": "0.1.0",
+  "author": {
+    "name": "remanatech",
+    "url": "https://github.com/remanatech"
+  },
+  "homepage": "https://github.com/remanatech/agentmagnify-skill",
+  "repository": "https://github.com/remanatech/agentmagnify-skill",
+  "keywords": [
+    "monitoring",
+    "reporting",
+    "observability",
+    "project-management"
+  ]
+}

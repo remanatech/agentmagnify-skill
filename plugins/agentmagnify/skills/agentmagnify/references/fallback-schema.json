@@ -1,0 +1,1069 @@
+{
+  "protocolVersion": "2026-07-31.1",
+  "minimumClientVersion": "0.1.0",
+  "backwardCompatibleWith": [],
+  "source": "bundled fallback",
+  "description": "Offline copy of the protocol bundle served by GET /v1/protocols/:version. Used when the API has never been reachable so that reporting rules, event vocabulary and validation stay available and development is never blocked.",
+  "eventTypes": [
+    "project.created",
+    "project.started",
+    "project.paused",
+    "project.resumed",
+    "project.completed",
+    "project.failed",
+    "project.archived",
+    "session.started",
+    "session.snapshot",
+    "session.completed",
+    "session.interrupted",
+    "roadmap.created",
+    "roadmap.updated",
+    "phase.created",
+    "phase.started",
+    "phase.progress",
+    "phase.completed",
+    "phase.blocked",
+    "task.created",
+    "task.assigned",
+    "task.started",
+    "task.progress",
+    "task.completed",
+    "task.failed",
+    "task.blocked",
+    "task.reopened",
+    "task.reviewed",
+    "agent.created",
+    "agent.started",
+    "agent.working",
+    "agent.idle",
+    "agent.blocked",
+    "agent.completed",
+    "agent.failed",
+    "agent.stopped",
+    "agent.stale",
+    "blocker.created",
+    "blocker.updated",
+    "blocker.resolved",
+    "decision.required",
+    "decision.resolved",
+    "decision.expired",
+    "test.started",
+    "test.passed",
+    "test.failed",
+    "build.started",
+    "build.completed",
+    "build.failed",
+    "artifact.created",
+    "artifact.updated",
+    "deployment.started",
+    "deployment.completed",
+    "deployment.failed",
+    "snapshot.created",
+    "progress.recalculated",
+    "completion.verified",
+    "completion.disputed",
+    "project.stale",
+    "risk.detected",
+    "status.corrected",
+    "heartbeat"
+  ],
+  "observerOnlyEventTypes": [
+    "snapshot.created",
+    "progress.recalculated",
+    "completion.verified",
+    "completion.disputed",
+    "agent.stale",
+    "project.stale",
+    "risk.detected",
+    "status.corrected"
+  ],
+  "requiredFieldsByEventType": {
+    "roadmap.created": [
+      "roadmap"
+    ],
+    "roadmap.updated": [
+      "roadmap"
+    ],
+    "phase.created": [
+      "phase"
+    ],
+    "phase.started": [
+      "phase"
+    ],
+    "phase.progress": [
+      "phase"
+    ],
+    "phase.completed": [
+      "phase"
+    ],
+    "phase.blocked": [
+      "phase"
+    ],
+    "task.created": [
+      "task"
+    ],
+    "task.assigned": [
+      "task"
+    ],
+    "task.started": [
+      "task"
+    ],
+    "task.progress": [
+      "task",
+      "progress"
+    ],
+    "task.completed": [
+      "task"
+    ],
+    "task.failed": [
+      "task"
+    ],
+    "task.blocked": [
+      "task"
+    ],
+    "task.reopened": [
+      "task"
+    ],
+    "task.reviewed": [
+      "task"
+    ],
+    "agent.created": [
+      "agent"
+    ],
+    "agent.started": [
+      "agent"
+    ],
+    "agent.working": [
+      "agent"
+    ],
+    "agent.idle": [
+      "agent"
+    ],
+    "agent.blocked": [
+      "agent"
+    ],
+    "agent.completed": [
+      "agent"
+    ],
+    "agent.failed": [
+      "agent"
+    ],
+    "agent.stopped": [
+      "agent"
+    ],
+    "agent.stale": [
+      "agent"
+    ],
+    "blocker.created": [
+      "blocker"
+    ],
+    "blocker.updated": [
+      "blocker"
+    ],
+    "blocker.resolved": [
+      "blocker"
+    ],
+    "decision.required": [
+      "decision"
+    ],
+    "decision.resolved": [
+      "decision"
+    ],
+    "decision.expired": [
+      "decision"
+    ],
+    "test.started": [
+      "test"
+    ],
+    "test.passed": [
+      "test"
+    ],
+    "test.failed": [
+      "test"
+    ],
+    "build.started": [
+      "build"
+    ],
+    "build.completed": [
+      "build"
+    ],
+    "build.failed": [
+      "build"
+    ],
+    "artifact.created": [
+      "artifact"
+    ],
+    "artifact.updated": [
+      "artifact"
+    ],
+    "deployment.started": [
+      "deployment"
+    ],
+    "deployment.completed": [
+      "deployment"
+    ],
+    "deployment.failed": [
+      "deployment"
+    ],
+    "completion.verified": [
+      "task"
+    ],
+    "completion.disputed": [
+      "task",
+      "assessment"
+    ],
+    "progress.recalculated": [
+      "progress"
+    ],
+    "risk.detected": [
+      "summary"
+    ],
+    "status.corrected": [
+      "assessment"
+    ]
+  },
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://agentmagnify.dev/schemas/2026-07-31.1/event.json",
+    "title": "AgentMagnify event envelope",
+    "type": "object",
+    "required": [
+      "eventId",
+      "sessionId",
+      "protocolVersion",
+      "sequence",
+      "type",
+      "timestamp",
+      "reporter"
+    ],
+    "properties": {
+      "eventId": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9._:-]{1,128}$",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Client generated; doubles as the idempotency key."
+      },
+      "projectId": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9._:-]{1,128}$",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Optional: the server resolves it from the bearer token."
+      },
+      "sessionId": {
+        "$ref": "#/$defs/externalId"
+      },
+      "protocolVersion": {
+        "type": "string",
+        "enum": [
+          "2026-07-31.1"
+        ]
+      },
+      "sequence": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Monotonic per session; orders replay when events arrive late."
+      },
+      "type": {
+        "enum": [
+          "project.created",
+          "project.started",
+          "project.paused",
+          "project.resumed",
+          "project.completed",
+          "project.failed",
+          "project.archived",
+          "session.started",
+          "session.snapshot",
+          "session.completed",
+          "session.interrupted",
+          "roadmap.created",
+          "roadmap.updated",
+          "phase.created",
+          "phase.started",
+          "phase.progress",
+          "phase.completed",
+          "phase.blocked",
+          "task.created",
+          "task.assigned",
+          "task.started",
+          "task.progress",
+          "task.completed",
+          "task.failed",
+          "task.blocked",
+          "task.reopened",
+          "task.reviewed",
+          "agent.created",
+          "agent.started",
+          "agent.working",
+          "agent.idle",
+          "agent.blocked",
+          "agent.completed",
+          "agent.failed",
+          "agent.stopped",
+          "agent.stale",
+          "blocker.created",
+          "blocker.updated",
+          "blocker.resolved",
+          "decision.required",
+          "decision.resolved",
+          "decision.expired",
+          "test.started",
+          "test.passed",
+          "test.failed",
+          "build.started",
+          "build.completed",
+          "build.failed",
+          "artifact.created",
+          "artifact.updated",
+          "deployment.started",
+          "deployment.completed",
+          "deployment.failed",
+          "snapshot.created",
+          "progress.recalculated",
+          "completion.verified",
+          "completion.disputed",
+          "project.stale",
+          "risk.detected",
+          "status.corrected",
+          "heartbeat"
+        ]
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the event happened on the agent side."
+      },
+      "reporter": {
+        "$ref": "#/$defs/reporter"
+      },
+      "summary": {
+        "$ref": "#/$defs/summaryText"
+      },
+      "parentEventId": {
+        "$ref": "#/$defs/externalId"
+      },
+      "task": {
+        "$ref": "#/$defs/task"
+      },
+      "phase": {
+        "$ref": "#/$defs/phase"
+      },
+      "roadmap": {
+        "$ref": "#/$defs/roadmap"
+      },
+      "agent": {
+        "$ref": "#/$defs/agent"
+      },
+      "blocker": {
+        "$ref": "#/$defs/blocker"
+      },
+      "decision": {
+        "$ref": "#/$defs/decision"
+      },
+      "test": {
+        "$ref": "#/$defs/test"
+      },
+      "build": {
+        "$ref": "#/$defs/build"
+      },
+      "artifact": {
+        "$ref": "#/$defs/artifact"
+      },
+      "deployment": {
+        "$ref": "#/$defs/deployment"
+      },
+      "verification": {
+        "$ref": "#/$defs/verification"
+      },
+      "evidence": {
+        "$ref": "#/$defs/evidence"
+      },
+      "assessment": {
+        "$ref": "#/$defs/assessment"
+      },
+      "progress": {
+        "$ref": "#/$defs/progress"
+      },
+      "severity": {
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ]
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ],
+          "maxLength": 500
+        }
+      }
+    },
+    "additionalProperties": false,
+    "$defs": {
+      "externalId": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9._:-]{1,128}$",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "shortText": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      },
+      "summaryText": {
+        "type": "string",
+        "maxLength": 2000
+      },
+      "percentage": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 100
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "reporter": {
+        "type": "object",
+        "required": [
+          "agentId"
+        ],
+        "properties": {
+          "agentId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "kind": {
+            "enum": [
+              "main",
+              "logical",
+              "observer"
+            ],
+            "default": "logical"
+          },
+          "displayName": {
+            "$ref": "#/$defs/shortText"
+          },
+          "executorId": {
+            "$ref": "#/$defs/externalId"
+          }
+        },
+        "additionalProperties": false
+      },
+      "task": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "title": {
+            "$ref": "#/$defs/shortText"
+          },
+          "phaseId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "assigned",
+              "in_progress",
+              "completed",
+              "failed",
+              "blocked"
+            ]
+          },
+          "assigneeAgentId": {
+            "$ref": "#/$defs/externalId"
+          }
+        },
+        "additionalProperties": false
+      },
+      "phase": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "title": {
+            "$ref": "#/$defs/shortText"
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "blocked"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "roadmap": {
+        "type": "object",
+        "required": [
+          "phases"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "title": {
+            "$ref": "#/$defs/shortText"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phases": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "title"
+              ],
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/externalId"
+                },
+                "title": {
+                  "$ref": "#/$defs/shortText"
+                },
+                "order": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "status": {
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed",
+                    "blocked"
+                  ]
+                },
+                "tasks": {
+                  "type": "array",
+                  "maxItems": 500,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "title"
+                    ],
+                    "properties": {
+                      "id": {
+                        "$ref": "#/$defs/externalId"
+                      },
+                      "title": {
+                        "$ref": "#/$defs/shortText"
+                      },
+                      "weight": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000,
+                        "default": 1
+                      },
+                      "status": {
+                        "enum": [
+                          "pending",
+                          "assigned",
+                          "in_progress",
+                          "completed",
+                          "failed",
+                          "blocked"
+                        ]
+                      },
+                      "assigneeAgentId": {
+                        "$ref": "#/$defs/externalId"
+                      },
+                      "acceptanceCriteria": {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {
+                          "$ref": "#/$defs/summaryText"
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "agent": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "displayName": {
+            "$ref": "#/$defs/shortText"
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "kind": {
+            "enum": [
+              "main",
+              "logical",
+              "observer"
+            ]
+          },
+          "status": {
+            "enum": [
+              "created",
+              "working",
+              "idle",
+              "blocked",
+              "completed",
+              "failed",
+              "stopped",
+              "stale"
+            ]
+          },
+          "currentTaskId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "currentTaskTitle": {
+            "$ref": "#/$defs/shortText"
+          },
+          "executorId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "waitingFor": {
+            "$ref": "#/$defs/summaryText"
+          }
+        },
+        "additionalProperties": false
+      },
+      "verification": {
+        "type": "object",
+        "required": [
+          "method",
+          "result"
+        ],
+        "properties": {
+          "method": {
+            "enum": [
+              "test",
+              "build",
+              "qa",
+              "commit",
+              "artifact",
+              "acceptance_criteria",
+              "manual",
+              "none"
+            ]
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "result": {
+            "enum": [
+              "passed",
+              "failed",
+              "skipped",
+              "pending"
+            ]
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "details": {
+            "$ref": "#/$defs/summaryText"
+          }
+        },
+        "additionalProperties": false
+      },
+      "evidence": {
+        "type": "object",
+        "description": "Metadata only. Never file contents, never diffs, never terminal output.",
+        "properties": {
+          "changedFiles": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "insertions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deletions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "commit": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "branch": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "artifactId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "testRunId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "buildId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "note": {
+            "$ref": "#/$defs/summaryText"
+          }
+        },
+        "additionalProperties": false
+      },
+      "blocker": {
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "title": {
+            "$ref": "#/$defs/shortText"
+          },
+          "severity": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "default": "medium"
+          },
+          "taskId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "agentId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "resolution": {
+            "$ref": "#/$defs/summaryText"
+          }
+        },
+        "additionalProperties": false
+      },
+      "decision": {
+        "type": "object",
+        "required": [
+          "id",
+          "question"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "question": {
+            "$ref": "#/$defs/shortText"
+          },
+          "context": {
+            "$ref": "#/$defs/summaryText"
+          },
+          "options": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/$defs/shortText"
+            }
+          },
+          "taskId": {
+            "$ref": "#/$defs/externalId"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "answer": {
+            "$ref": "#/$defs/summaryText"
+          }
+        },
+        "additionalProperties": false
+      },
+      "test": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "suite": {
+            "$ref": "#/$defs/shortText"
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "status": {
+            "enum": [
+              "running",
+              "passed",
+              "failed"
+            ]
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failingTests": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/$defs/shortText"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "build": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "name": {
+            "$ref": "#/$defs/shortText"
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "status": {
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "errorSummary": {
+            "$ref": "#/$defs/summaryText"
+          }
+        },
+        "additionalProperties": false
+      },
+      "artifact": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "name": {
+            "$ref": "#/$defs/shortText"
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "deployment": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/externalId"
+          },
+          "environment": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "status": {
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "additionalProperties": false
+      },
+      "assessment": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "verdict": {
+            "enum": [
+              "unverified",
+              "pending",
+              "verified",
+              "disputed",
+              "failed"
+            ]
+          },
+          "reason": {
+            "$ref": "#/$defs/summaryText"
+          },
+          "reportedStatus": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "verifiedStatus": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "confidence": {
+            "$ref": "#/$defs/confidence"
+          }
+        },
+        "additionalProperties": false
+      },
+      "progress": {
+        "type": "object",
+        "description": "Derived from roadmap task weights. Never from elapsed time.",
+        "properties": {
+          "roadmap": {
+            "$ref": "#/$defs/percentage"
+          },
+          "reported": {
+            "$ref": "#/$defs/percentage"
+          },
+          "verified": {
+            "$ref": "#/$defs/percentage"
+          },
+          "confidence": {
+            "$ref": "#/$defs/confidence"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs_note": "jsonSchema.$defs holds the shared sub-object definitions.",
+  "reportingPolicy": {
+    "reportOnTaskStart": true,
+    "reportOnTaskComplete": true,
+    "reportOnBlocker": true,
+    "reportOnTestResult": true,
+    "reportOnlyMeaningfulChanges": true,
+    "snapshotIntervalSeconds": 300,
+    "observerIntervalSeconds": 120,
+    "heartbeatIntervalSeconds": 300,
+    "maxBatchSize": 100,
+    "maxPayloadBytes": 262144,
+    "runObserverOnEvents": [
+      "task.created",
+      "task.completed",
+      "task.failed",
+      "task.blocked",
+      "agent.idle",
+      "agent.blocked",
+      "test.failed",
+      "build.failed",
+      "decision.required",
+      "phase.completed",
+      "session.completed",
+      "session.interrupted"
+    ]
+  },
+  "agentInstructions": {
+    "completionRule": "Do not report completion before the required verification finishes. If verification is unavailable, report the task as completed with verification.method \"none\" and let the observer assess it.",
+    "privacyRule": "Never send secrets, environment variable values, credentials, private keys, source code blocks or full terminal output. Report metadata only.",
+    "progressRule": "Report meaningful state changes, not arbitrary time-based percentages. Progress must be derived from roadmap task weights.",
+    "duplicationRule": "A sub-agent reports directly to the Monitoring API. The main agent must not relay the same event again; it emits a separate assessment event referencing parentEventId instead.",
+    "observerRule": "The observer never modifies source code, never decides on behalf of the user and never marks a task complete without evidence."
+  },
+  "limits": {
+    "maxBatchSize": 100,
+    "maxPayloadBytes": 262144,
+    "maxSummaryLength": 2000,
+    "maxTitleLength": 300,
+    "maxIdLength": 128
+  },
+  "activityThresholds": {
+    "quietAfterSeconds": 300,
+    "staleAfterSeconds": 900
+  }
+}

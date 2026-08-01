@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "agentmagnify",
+  "version": "0.1.0",
+  "description": "The AgentMagnify reporting skill, so coding agents publish a live project record instead of a transcript.",
+  "owner": {
+    "name": "remanatech",
+    "url": "https://github.com/remanatech"
+  },
+  "plugins": [
+    {
+      "name": "agentmagnify",
+      "description": "Report live project state to AgentMagnify: roadmap, phases, tasks, which agent is on what, test and build evidence, blockers, decisions, and an independent verification of every completion claim.",
+      "version": "0.1.0",
+      "source": "./plugins/agentmagnify",
+      "category": "productivity"
+    }
+  ]
+}
