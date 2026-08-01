@@ -69,7 +69,7 @@ AT_LOCK_DIR="$AT_STATE_DIR/.lock"
 AT_FALLBACK_SCHEMA="$AT_REFERENCE_DIR/fallback-schema.json"
 
 AT_CLIENT_NAME="agentmagnify-skill"
-AT_CLIENT_VERSION="0.1.0"
+AT_CLIENT_VERSION="0.1.1"
 AT_FALLBACK_PROTOCOL_VERSION="2026-07-31.1"
 
 # ---------------------------------------------------------------------------
