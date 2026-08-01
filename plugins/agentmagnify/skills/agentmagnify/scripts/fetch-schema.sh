@@ -64,7 +64,19 @@ mark_verified() {
   printf 'verified\n' > "$AT_STATE_DIR/protocol-status"
 }
 
+# The reason is passed in, not assumed.
+#
+# This used to say "no cached bundle and the API is unreachable" whatever had
+# actually happened, and the commonest way to reach it is the one case where
+# that is false: a freshly installed skill has no token yet, so nothing is ever
+# sent and the API is never contacted, let alone found unreachable. The message
+# sent whoever read it to check DNS, the firewall and the server, for a state
+# that is normal five minutes after `npx agentmagnify install`.
+#
+# Observed on the live service: `fetch-schema.sh` reported the API unreachable
+# and `pair.sh` reached the same API seconds later.
 install_fallback() {
+  local reason="${1:-reason unknown}"
   if [ ! -f "$AT_FALLBACK_SCHEMA" ]; then
     at_error "references/fallback-schema.json is missing; cannot continue"
     return 1
@@ -73,7 +85,7 @@ install_fallback() {
   : > "$AT_SCHEMA_ETAG_FILE"
   printf '0\n' > "$AT_SCHEMA_FETCHED_FILE"
   at_warn "using the bundled fallback schema; live reporting rules may be out of date"
-  mark_unverified "no cached bundle and the API is unreachable"
+  mark_unverified "no cached bundle, and $reason"
   at_json_get "$AT_SCHEMA_FILE" 'protocolVersion'
   return 0
 }
@@ -97,7 +109,9 @@ use_cache_or_fallback() {
     local age
     age="$(cache_age_seconds)"
     if [ "$age" -le "$CACHE_MAX_AGE_SECONDS" ]; then
-      at_info "API unreachable ($reason); using the cached protocol bundle"
+      # Also not "unreachable": $reason is "no token" as often as it is a
+      # failed request, and "API unreachable (no token)" contradicts itself.
+      at_info "not fetched ($reason); using the cached protocol bundle"
       at_json_get "$AT_SCHEMA_FILE" 'protocolVersion'
       return 0
     fi
@@ -106,7 +120,7 @@ use_cache_or_fallback() {
     at_json_get "$AT_SCHEMA_FILE" 'protocolVersion'
     return 0
   fi
-  install_fallback
+  install_fallback "$reason"
 }
 
 if [ "$FORCE" = "0" ] && [ -f "$AT_SCHEMA_FILE" ] && [ "$PROTOCOL_VERSION" != "latest" ]; then

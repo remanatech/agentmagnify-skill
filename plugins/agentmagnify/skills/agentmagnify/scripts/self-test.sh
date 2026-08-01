@@ -941,6 +941,31 @@ for SCRIPT_WITH_USAGE in pair.sh login.sh; do
     "$(printf '%s' "$USAGE_TEXT" | grep -i 'api-url' | head -1)"
 done
 
+
+# ---------------------------------------------------------------------------
+# A message does not claim what it did not test
+# ---------------------------------------------------------------------------
+#
+# With no token, fetch-schema.sh sends nothing at all -- so it cannot have
+# found the API unreachable, and it used to say so anyway. That is the state a
+# machine is in five minutes after `npx agentmagnify install`, and the message
+# sent whoever read it to check DNS, the firewall and the server. Seen on the
+# live service: this warned the API was unreachable and pair.sh reached the
+# same API seconds later.
+
+SCHEMA_HOME="$(mktemp -d "${TMPDIR:-/tmp}/agentmagnify-schema.XXXXXX")"
+NO_TOKEN_OUTPUT="$(env -u AGENTMAGNIFY_TOKEN AGENTMAGNIFY_STATE_DIR="$SCHEMA_HOME/state" \
+  bash "$AT_LIB_DIR/fetch-schema.sh" 2>&1 || true)"
+
+check "fetch-schema names the missing token rather than blaming the network" \
+  "$( [ "${NO_TOKEN_OUTPUT#*no token}" != "$NO_TOKEN_OUTPUT" ] && echo 0 || echo 1 )" \
+  "$NO_TOKEN_OUTPUT"
+check "and does not report the API unreachable without having asked it" \
+  "$( [ "${NO_TOKEN_OUTPUT#*unreachable}" = "$NO_TOKEN_OUTPUT" ] && echo 0 || echo 1 )" \
+  "$NO_TOKEN_OUTPUT"
+
+rm -rf "$SCHEMA_HOME"
+
 INSTALLER_BIN="$AT_SKILL_ROOT/../installer/bin/agentmagnify.mjs"
 
 if [ "${AGENTMAGNIFY_SKIP_INSTALLER_CHECKS:-0}" = "1" ]; then
