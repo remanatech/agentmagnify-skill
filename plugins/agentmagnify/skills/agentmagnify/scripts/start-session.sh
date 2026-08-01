@@ -180,6 +180,9 @@ PROTOCOL_STATUS="$(at_json_get "$AT_SESSION_FILE" 'protocolStatus')"
 
 if [ "$QUIET" = "0" ]; then
   at_info "session $SESSION_ID opened for project ${PROJECT_LABEL:-$PROJECT_ID}"
+
+  # Liveness stops being something anybody has to remember from here on.
+  at_start_heartbeat
   at_info "protocol $PROTOCOL_VERSION (${PROTOCOL_STATUS:-verified}), reporting mode ${REPORTING_MODE:-unknown}"
 fi
 

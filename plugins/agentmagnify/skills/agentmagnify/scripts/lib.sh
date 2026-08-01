@@ -65,11 +65,50 @@ AT_DEAD_LETTER_FILE="$AT_STATE_DIR/dead-letter.jsonl"
 # shellcheck disable=SC2034
 AT_REPLAY_STAMP_FILE="$AT_STATE_DIR/dead-letter.replayed-at"
 AT_SEQUENCE_FILE="$AT_STATE_DIR/sequence"
+# The heartbeat daemon's pid, so start-session.sh does not start a second one
+# and complete-session.sh can stop the first.
+# shellcheck disable=SC2034  # read by heartbeat-daemon.sh and its callers
+AT_HEARTBEAT_PID_FILE="$AT_STATE_DIR/heartbeat.pid"
+
+# Starts the heartbeat daemon, unless one is already running.
+#
+# Detached on purpose: it has to outlive the shell that starts it, because the
+# shell is one tool call and the work is an hour. Verified that a nohup'd
+# process keeps ticking across separate tool calls before this was written.
+at_start_heartbeat() {
+  [ "${AGENTMAGNIFY_HEARTBEAT:-1}" = "0" ] && return 0
+
+  if [ -f "$AT_HEARTBEAT_PID_FILE" ]; then
+    local running
+    running="$(cat "$AT_HEARTBEAT_PID_FILE" 2>/dev/null || printf '')"
+    if [ -n "$running" ] && kill -0 "$running" 2>/dev/null; then
+      at_debug "heartbeat daemon already running (pid $running)"
+      return 0
+    fi
+  fi
+
+  nohup bash "$AT_LIB_DIR/heartbeat-daemon.sh" >/dev/null 2>&1 &
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  printf '%s\n' "$pid" > "$AT_HEARTBEAT_PID_FILE"
+  at_debug "heartbeat daemon started (pid $pid)"
+}
+
+# Stops it. Called when a session ends, so that a finished session stops
+# claiming to be alive -- which is the whole reason the daemon has an owner.
+at_stop_heartbeat() {
+  [ -f "$AT_HEARTBEAT_PID_FILE" ] || return 0
+  local pid
+  pid="$(cat "$AT_HEARTBEAT_PID_FILE" 2>/dev/null || printf '')"
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  rm -f "$AT_HEARTBEAT_PID_FILE"
+  at_debug "heartbeat daemon stopped"
+}
 AT_LOCK_DIR="$AT_STATE_DIR/.lock"
 AT_FALLBACK_SCHEMA="$AT_REFERENCE_DIR/fallback-schema.json"
 
 AT_CLIENT_NAME="agentmagnify-skill"
-AT_CLIENT_VERSION="0.1.3"
+AT_CLIENT_VERSION="0.1.4"
 AT_FALLBACK_PROTOCOL_VERSION="2026-07-31.1"
 
 # ---------------------------------------------------------------------------

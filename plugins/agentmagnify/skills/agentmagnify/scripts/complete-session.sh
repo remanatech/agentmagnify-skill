@@ -45,6 +45,13 @@ esac
 at_load_config
 at_require_deps || exit 1
 
+# Before anything else, and whatever the rest of this script decides.
+#
+# The daemon claims somebody is still working. From the moment a session is
+# being closed that claim is false, and it stays false even if the close
+# itself fails -- so this does not sit behind a successful HTTP call.
+at_stop_heartbeat
+
 if ! at_load_session; then
   at_warn "no session on disk; nothing to complete"
   exit 0

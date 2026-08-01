@@ -90,6 +90,12 @@ is), `AGENTMAGNIFY_EXECUTOR_LABEL` (overrides that label outright),
 `AGENTMAGNIFY_CAPABILITIES` (space-separated capability override),
 `AGENTMAGNIFY_DEBUG=1` (verbose logging to stderr).
 
+Heartbeat, all optional: `AGENTMAGNIFY_HEARTBEAT=0` switches the background
+process off entirely, `AGENTMAGNIFY_HEARTBEAT_SECONDS` sets the interval
+(default 300, floor 60 -- below a minute it stops being a liveness signal and
+becomes traffic), `AGENTMAGNIFY_HEARTBEAT_MAX_SILENCE` sets how long it keeps
+going with no events before deciding the agent has gone (default 1800).
+
 ## 2. Startup sequence
 
 Run this once, at the beginning of the session, before creating any sub-agent.
@@ -107,8 +113,9 @@ scripts/start-session.sh
 1. **Verify the token.** A missing or rejected token degrades to offline mode; it
    never aborts the session.
 2. **Handshake.** `POST /v1/agent/sessions` with the client name
-   `agentmagnify-skill` version `0.1.0`, the detected executor, and the
-   capabilities from section 4.
+   `agentmagnify-skill`, its version from `lib.sh`, the detected executor, and
+   the capabilities from section 4. The number is not repeated here: it
+   was, and it named the first release three releases later.
 3. **Cache the schema and policy.** It then calls `fetch-schema.sh` for the exact
    protocol version the server pinned this session to, and stores the JSON Schema,
    the reporting policy and the agent instructions in `state/schema.json`.
@@ -151,7 +158,8 @@ All of them live in `scripts/` and are safe to call at any time.
 | `start-session.sh` | Open the session. Prints the panel URL. |
 | `report-event.sh` | Send one event. The main entry point. |
 | `send-snapshot.sh` | Send a project snapshot. Observer only, plus session close. |
-| `send-heartbeat.sh` | Keep the session alive during long silent work. |
+| `send-heartbeat.sh` | One liveness ping. You do not normally call this: `start-session.sh` starts a background process that does it for you. |
+| `heartbeat-daemon.sh` | That background process. Started and stopped for you; not meant to be run by hand. |
 | `flush-pending-events.sh` | Drain the offline queue. `--replay-dead-letters` also re-sends what a refused credential held back. Safe to call repeatedly. |
 | `complete-session.sh` | Close the session. |
 | `fetch-schema.sh` | Refresh the cached protocol bundle. Called by `start-session.sh`. |
@@ -314,6 +322,32 @@ Working alone, all of this is still owed. The commonest way to leave a project
 looking abandoned is to send the roadmap, start a phase, and then go quiet for
 an hour of real work - the panel has no way to tell that apart from an agent
 that stopped.
+
+### Staying visible while you work
+
+Liveness is not your job. `start-session.sh` starts a background process that
+heartbeats on its own, so the session stays active through silent work without
+anybody remembering anything. It stops when the session ends, and it stops on
+its own if no event has arrived for half an hour - a heartbeat is a claim that
+somebody is still working, and a dead session that looks alive is worse than one
+that honestly goes stale.
+
+**What it cannot do is say what changed.** Only you know that, so:
+
+**Report at every boundary in the work, not on a timer.** You have no clock. You
+act between tool calls, so "every five minutes" is not something you can do -
+but "before I start the next file, did I finish something?" is. A file written,
+a module working, a command that passed: that is a boundary.
+
+**Never let a task pass in silence.** If a task is taking a dozen edits, send
+`task.progress` on the way through with `--progress N` derived from the work
+actually done. Eleven files written and nothing sent is not a quiet task, it is
+an invisible one - and that is what the panel showed the first time this skill
+was used on a real project: a roadmap, one `task.started`, then nothing at all
+while an engine was built.
+
+**One line of what and one of what is next.** `--summary` is the sentence
+somebody reads to know where the project is without asking you.
 
 ## 7. The dual-report rule
 

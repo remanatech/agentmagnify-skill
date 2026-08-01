@@ -973,6 +973,44 @@ check "and does not report the API unreachable without having asked it" \
 
 rm -rf "$SCHEMA_HOME"
 
+
+# ---------------------------------------------------------------------------
+# The heartbeat runs by itself, and stops by itself
+# ---------------------------------------------------------------------------
+#
+# Liveness used to be a row in a table saying "keep the session alive during
+# long silent work", with nothing anywhere telling an agent when to call it. A
+# real session sent a roadmap and one task.started, then wrote eleven files in
+# silence. A model has no clock and cannot wake itself up, so this is a process
+# now rather than an instruction.
+#
+# The stop conditions matter as much as the ticking: a daemon still claiming
+# liveness after the agent has gone makes a dead session look alive, which is
+# worse than the silence it replaced.
+
+check "the heartbeat daemon ships with the skill" \
+  "$( [ -f "$AT_LIB_DIR/heartbeat-daemon.sh" ] && echo 0 || echo 1 )" \
+  "scripts/heartbeat-daemon.sh"
+
+check "start-session starts it" \
+  "$( grep -q 'at_start_heartbeat' "$AT_LIB_DIR/start-session.sh" && echo 0 || echo 1 )" \
+  "start-session.sh does not call at_start_heartbeat"
+
+check "and complete-session stops it, so a closed session stops claiming to be alive" \
+  "$( grep -q 'at_stop_heartbeat' "$AT_LIB_DIR/complete-session.sh" && echo 0 || echo 1 )" \
+  "complete-session.sh does not call at_stop_heartbeat"
+
+check "the daemon gives up on its own when no event has arrived" \
+  "$( grep -q 'MAX_SILENCE' "$AT_LIB_DIR/heartbeat-daemon.sh" && echo 0 || echo 1 )" \
+  "no silence ceiling in heartbeat-daemon.sh"
+
+# A version written into prose is a version that goes stale silently: SKILL.md
+# claimed the handshake sent 0.1.0 three releases after it stopped doing so.
+SKILL_MD_VERSIONS="$(grep -oE '\`[0-9]+\.[0-9]+\.[0-9]+\`' "$AT_SKILL_ROOT/SKILL.md" | wc -l | tr -d ' ')"
+check "SKILL.md quotes no version number of its own" \
+  "$( [ "$SKILL_MD_VERSIONS" = "0" ] && echo 0 || echo 1 )" \
+  "$SKILL_MD_VERSIONS version literal(s) in SKILL.md; lib.sh is the only place a version belongs"
+
 INSTALLER_BIN="$AT_SKILL_ROOT/../installer/bin/agentmagnify.mjs"
 
 if [ "${AGENTMAGNIFY_SKIP_INSTALLER_CHECKS:-0}" = "1" ]; then
