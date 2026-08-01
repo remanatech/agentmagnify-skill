@@ -69,6 +69,45 @@ Optional on any event: `summary`, `parentEventId`, `severity`, `metadata`,
 | `phase.completed` | Main agent | `phase` |
 | `phase.blocked` | Main agent | `phase` |
 
+#### The roadmap object
+
+`--roadmap-json FILE` takes this. Only `id` and `title` are required, at every
+level; everything else is optional and everything unknown is rejected.
+
+```json
+{
+  "id": "roadmap-1",
+  "title": "Neon Pong 3D",
+  "version": 1,
+  "phases": [
+    {
+      "id": "engine",
+      "title": "WebGL2 render engine",
+      "order": 1,
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "shaders",
+          "title": "Vertex and fragment shaders",
+          "weight": 3,
+          "status": "in_progress",
+          "assigneeAgentId": "main-agent",
+          "acceptanceCriteria": "A lit cube renders at 60fps in Chrome."
+        }
+      ]
+    }
+  ]
+}
+```
+
+`weight` is what progress is computed from: a task of weight 3 counts for three
+times as much as a task of weight 1. Left out, every task counts the same.
+
+Written out because the first agent to use this skill on a real project could
+not find it, and read `references/fallback-schema.json` with a Python one-liner
+at runtime to work it out. Anything an agent has to reverse-engineer from the
+schema belongs here instead.
+
 ### Task
 
 | Event | Who may emit | Required beyond the envelope |

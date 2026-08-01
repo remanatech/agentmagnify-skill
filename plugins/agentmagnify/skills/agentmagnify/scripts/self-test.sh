@@ -954,7 +954,14 @@ done
 # same API seconds later.
 
 SCHEMA_HOME="$(mktemp -d "${TMPDIR:-/tmp}/agentmagnify-schema.XXXXXX")"
-NO_TOKEN_OUTPUT="$(env -u AGENTMAGNIFY_TOKEN AGENTMAGNIFY_STATE_DIR="$SCHEMA_HOME/state" \
+# AGENTMAGNIFY_CREDENTIALS_FILE too, not just the variable. A paired machine
+# has ~/.agentmagnify/credentials.json, so unsetting the environment alone left
+# a token to find: this check passed on an unpaired machine and failed on a
+# paired one, which is a test of the machine rather than of the code. It caught
+# itself the first time this repository's own machine was paired.
+NO_TOKEN_OUTPUT="$(env -u AGENTMAGNIFY_TOKEN \
+  AGENTMAGNIFY_CREDENTIALS_FILE="$SCHEMA_HOME/absent.json" \
+  AGENTMAGNIFY_STATE_DIR="$SCHEMA_HOME/state" \
   bash "$AT_LIB_DIR/fetch-schema.sh" 2>&1 || true)"
 
 check "fetch-schema names the missing token rather than blaming the network" \

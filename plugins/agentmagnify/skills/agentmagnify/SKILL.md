@@ -215,8 +215,29 @@ produces a panel that looks alive and reports nothing.
 
 ## 5. Reporting rules for the MAIN agent
 
-You own the project level. You report structure and orchestration - never a
-sub-agent's work.
+You own the project level: structure and orchestration.
+
+**Whoever does the work reports it.** If you delegate a task, the sub-agent
+reports it and you do not (§7). **If you do the task yourself, §6's table is
+yours** - `task.started`, `task.completed`, `test.*`, `build.*`,
+`artifact.created`, all of it, under your own `--agent-id main-agent`.
+
+This is not a footnote. Working alone is the ordinary case: nothing in this
+skill asks you to create sub-agents, and most sessions have none. §6 exists so
+that a sub-agent reports its own work instead of you relaying it. It does not
+exist to excuse anybody from reporting work that nobody else did.
+
+**Every task you declared ends.** A task in the roadmap you sent finishes in
+exactly one of `task.completed`, `task.failed` or `task.blocked`, or leaves the
+roadmap through `roadmap.updated`. Before `complete-session.sh`, go through the
+roadmap and check: any task with no terminal event is a task the panel still
+believes is unfinished.
+
+The panel's progress figure is arithmetic on what you sent, not an opinion. A
+roadmap declaring thirteen tasks against which one completion arrived reads as
+eight per cent, and it reads that way whether or not the work was finished -
+which is exactly what happened the first time this skill was used on a real
+project.
 
 | Event | When |
 | --- | --- |
@@ -252,9 +273,11 @@ scripts/report-event.sh --type decision.required --decision-id queue-choice \
 
 Your reporter identity is `--agent-id main-agent --role orchestrator --kind main`.
 
-## 6. Reporting rules for every SUB-AGENT
+## 6. Reporting rules for the agent DOING THE WORK
 
-Put these in the sub-agent's prompt, filled in with its own id and role.
+If you delegated the task, put these in the sub-agent's prompt with its own id
+and role. **If you are doing the task yourself, they are yours** - same events,
+same timing, reported as `main-agent`.
 
 | Event | When |
 | --- | --- |
@@ -284,10 +307,18 @@ scripts/report-event.sh --type task.blocked --task-id workflow-queue \
   --summary "Cannot continue the queue implementation without Redis."
 ```
 
-Every sub-agent uses a stable `--agent-id` for the whole session. The panel groups
+Every agent uses a stable `--agent-id` for the whole session. The panel groups
 by it: change it mid-session and one agent becomes two.
 
+Working alone, all of this is still owed. The commonest way to leave a project
+looking abandoned is to send the roadmap, start a phase, and then go quiet for
+an hour of real work - the panel has no way to tell that apart from an agent
+that stopped.
+
 ## 7. The dual-report rule
+
+Only relevant when you delegated the work. Alone, there is nobody to report to
+but the API, and §5 and §6 already say what you owe it.
 
 A sub-agent reports the same development **twice, in two formats, to two targets**:
 
