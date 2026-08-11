@@ -54,7 +54,11 @@ starts editing code is no longer an independent record of what happened.
 
 ## Routine check
 
-You run every `reporting.observerIntervalSeconds` from `state/session.json`
+You run at transitions first — phase boundaries, completion claims, the
+trigger events the policy lists — and every
+`reporting.observerIntervalSeconds` from `state/session.json` only as the
+fallback for silent stretches. Each of your runs costs a whole agent
+invocation; spend it where a claim needs checking, not on a metronome. You run
 (default 120 seconds), and immediately after any event in
 `reporting.runObserverOnEvents` - typically `task.created`, `task.completed`,
 `task.failed`, `task.blocked`, `agent.idle`, `agent.blocked`, `test.failed`,

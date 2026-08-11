@@ -1029,7 +1029,7 @@
     "reportOnTestResult": true,
     "reportOnlyMeaningfulChanges": true,
     "snapshotIntervalSeconds": 300,
-    "observerIntervalSeconds": 120,
+    "observerIntervalSeconds": 600,
     "heartbeatIntervalSeconds": 300,
     "maxBatchSize": 100,
     "maxPayloadBytes": 262144,

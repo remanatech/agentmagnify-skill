@@ -62,13 +62,37 @@ last_event_age_seconds() {
   esac
 }
 
+SLEEP_PID=""
+
 cleanup() {
+  [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
   rm -f "$AT_HEARTBEAT_PID_FILE"
 }
-trap cleanup EXIT INT TERM
+trap 'cleanup; exit 0' EXIT INT TERM
+
+# Backgrounded and waited on, rather than a plain `sleep`.
+#
+# Bash does not run a trap while it is waiting for a foreground child, so a
+# daemon sitting in `sleep 300` ignores SIGTERM for up to five minutes. Stopping
+# it therefore appeared to work -- kill returns 0, the pid file goes -- while
+# the process lived on and could send one more heartbeat AFTER the session was
+# closed, which is the exact lie the stop conditions exist to prevent.
+#
+# A trap does run during `wait`. Measured: without this, the process was still
+# alive three seconds after SIGTERM and its trap had not fired.
+#
+# The first version of this was tested by killing the daemon a second after
+# starting it, and passed -- because the signal arrived before the sleep did.
+# The test was a race, and it reported the answer I wanted.
+nap() {
+  sleep "$1" &
+  SLEEP_PID=$!
+  wait "$SLEEP_PID" 2>/dev/null
+  SLEEP_PID=""
+}
 
 while :; do
-  sleep "$INTERVAL"
+  nap "$INTERVAL"
 
   [ -f "$AT_SESSION_FILE" ] || exit 0
 

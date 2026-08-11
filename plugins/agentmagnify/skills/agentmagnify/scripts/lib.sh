@@ -100,15 +100,29 @@ at_stop_heartbeat() {
   [ -f "$AT_HEARTBEAT_PID_FILE" ] || return 0
   local pid
   pid="$(cat "$AT_HEARTBEAT_PID_FILE" 2>/dev/null || printf '')"
-  [ -n "$pid" ] && kill "$pid" 2>/dev/null
   rm -f "$AT_HEARTBEAT_PID_FILE"
+  [ -n "$pid" ] || return 0
+
+  kill "$pid" 2>/dev/null
+
+  # Checked, not assumed. `kill` returning 0 says the signal was delivered, not
+  # that anything acted on it -- and a heartbeat daemon that outlives the
+  # session it belongs to goes on claiming somebody is working. Waiting a
+  # moment and escalating is the difference between stopping it and asking.
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    [ "$waited" -ge 3 ] && { kill -9 "$pid" 2>/dev/null; break; }
+    sleep 1
+    waited=$(( waited + 1 ))
+  done
+
   at_debug "heartbeat daemon stopped"
 }
 AT_LOCK_DIR="$AT_STATE_DIR/.lock"
 AT_FALLBACK_SCHEMA="$AT_REFERENCE_DIR/fallback-schema.json"
 
 AT_CLIENT_NAME="agentmagnify-skill"
-AT_CLIENT_VERSION="0.1.4"
+AT_CLIENT_VERSION="0.2.0"
 AT_FALLBACK_PROTOCOL_VERSION="2026-07-31.1"
 
 # ---------------------------------------------------------------------------
@@ -1826,7 +1840,7 @@ at_write_local_session() {
     "maxBatchSize": 100,
     "maxPayloadBytes": 262144,
     "snapshotIntervalSeconds": 300,
-    "observerIntervalSeconds": 120,
+    "observerIntervalSeconds": 600,
     "heartbeatIntervalSeconds": 300
   }
 }

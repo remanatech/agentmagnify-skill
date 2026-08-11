@@ -23,7 +23,14 @@
 #   exists only in this process's memory until it is exchanged. It is the half
 #   that is worth something, and no human ever handles it.
 #
-# Usage: pair.sh [--api-url URL] [--project] [--timeout SECONDS]
+# The other direction: pair.sh --code BCDF-GHJK-MNPQ presents a code somebody
+# issued in the panel and exchanges it for the token in one request. There the
+# code IS the valuable half -- it lasts ten minutes, works once, and grants
+# exactly what the issuer configured -- and it exists for the machine the flow
+# above cannot serve: a cloud agent session with no terminal anybody watches
+# and no filesystem that outlives it.
+#
+# Usage: pair.sh [--api-url URL] [--project] [--timeout SECONDS] [--code CODE]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,18 +44,24 @@ usage() {
   # second copy to drift -- the first attempt put `$AT_DEFAULT_API_URL` inside
   # a quoted heredoc and printed the variable's name to the user.
   cat <<'USAGE' | sed "s|__DEFAULT_API_URL__|$AT_DEFAULT_API_URL|g"
-Usage: pair.sh [--api-url URL] [--project] [--timeout SECONDS]
+Usage: pair.sh [--api-url URL] [--project] [--timeout SECONDS] [--code CODE]
 
   --api-url URL      monitoring API base URL (default: __DEFAULT_API_URL__)
   --project          store the token for THIS project only, in
                      .agentmagnify.local.json, instead of once per machine
   --timeout SECONDS  give up waiting for approval (default: 600)
+  --code CODE        present a twelve-character pair code issued in the panel
+                     (like BCDF-GHJK-MNPQ) instead of starting a pairing here.
+                     The code works once and lasts ten minutes.
 
-Run this, read out the code it prints, and have somebody approve it in the
-panel. No token is shown here or there.
+With no --code: run this, read out the code it prints, and have somebody
+approve it in the panel. No token is shown here or there.
 
-No browser and nobody to approve -- a CI runner, a container? Use a token from
-the panel's Tokens screen instead, through AGENTMAGNIFY_TOKEN or login.sh.
+With --code: no waiting and nobody at a browser needed -- the right path for a
+cloud agent session, where somebody at the panel issued the code first.
+
+No panel access at all -- a CI runner, a container? Use a token from the
+panel's Tokens screen instead, through AGENTMAGNIFY_TOKEN or login.sh.
 That path is unchanged and is still the right one there.
 USAGE
 }
@@ -56,12 +69,14 @@ USAGE
 API_URL=""
 SCOPE="user"
 TIMEOUT_SECONDS=600
+PAIR_CODE=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --api-url) [ "$#" -ge 2 ] || at_die "--api-url requires a value"; API_URL="$2"; shift 2 ;;
     --project) SCOPE="project"; shift ;;
     --timeout) [ "$#" -ge 2 ] || at_die "--timeout requires a value"; TIMEOUT_SECONDS="$2"; shift 2 ;;
+    --code) [ "$#" -ge 2 ] || at_die "--code requires a value"; PAIR_CODE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) at_die "unknown option: $1" ;;
   esac
@@ -96,125 +111,174 @@ if [ -z "$DEVICE_LABEL" ]; then
   DEVICE_LABEL="$(id -un 2>/dev/null || printf 'unknown')@$(hostname 2>/dev/null || printf 'unknown-host')"
 fi
 
-request_file="$(at_mktemp)"
-response_file="$(at_mktemp)"
-
-{
-  printf '{'
-  printf '"deviceLabel":%s,' "$(at_json_quote "$DEVICE_LABEL")"
-  printf '"clientName":%s,' "$(at_json_quote "$AT_CLIENT_NAME")"
-  printf '"clientVersion":%s,' "$(at_json_quote "$AT_CLIENT_VERSION")"
-  printf '"projectHint":%s' "$(at_json_quote "$AT_PROJECT_NAME")"
-  printf '}'
-} > "$request_file"
-
-status="$(at_http_request POST "/v1/pairings" "$request_file" "$response_file")"
-
-if ! at_status_is_success "$status"; then
-  if [ "$status" = "000" ]; then
-    at_error "could not reach the monitoring API at $API_URL"
-  else
-    at_error "could not start pairing ($status): $(at_error_message "$response_file")"
-  fi
-  exit 1
-fi
-
-DEVICE_CODE="$(at_json_get "$response_file" 'deviceCode')"
-USER_CODE="$(at_json_get "$response_file" 'userCode')"
-VERIFY_URL="$(at_json_get "$response_file" 'verificationUri')"
-INTERVAL="$(at_json_get "$response_file" 'intervalSeconds')"
-case "$INTERVAL" in
-  ''|*[!0-9]*) INTERVAL=5 ;;
-esac
-
-# The device code must not survive this process. The response file is a
-# temporary that at_cleanup_temp removes on exit, but it holds the one secret
-# worth holding, so it is truncated the moment it has been read rather than
-# left lying around for however long this script waits.
-: > "$response_file"
-
-if [ -z "$DEVICE_CODE" ] || [ -z "$USER_CODE" ]; then
-  at_die "the API did not return a pairing; check that $API_URL is the monitoring API"
-fi
-
-printf '\n'
-printf 'Pair this machine\n'
-printf '  1. Open   %s\n' "$VERIFY_URL"
-printf '  2. Sign in, then enter this code:\n'
-printf '\n'
-printf '        %s\n' "$USER_CODE"
-printf '\n'
-printf '  3. Check that the screen names this machine (%s) and the workspace\n' "$DEVICE_LABEL"
-printf '     you meant, then approve.\n'
-printf '\n'
-printf 'This code alone cannot grant anything. Waiting for approval'
-printf ' (up to %s seconds)...\n' "$TIMEOUT_SECONDS"
-
-poll_file="$(at_mktemp)"
-poll_body="$(at_mktemp)"
-printf '{"deviceCode":%s}' "$(at_json_quote "$DEVICE_CODE")" > "$poll_body"
-chmod 600 "$poll_body" 2>/dev/null || true
-
-DEADLINE=$(( $(at_epoch_seconds) + TIMEOUT_SECONDS ))
 TOKEN=""
+WORKSPACE_NAME=""
+TOKEN_KIND=""
+TOKEN_NAME=""
 
-while : ; do
-  if [ "$(at_epoch_seconds)" -ge "$DEADLINE" ]; then
-    at_error "gave up waiting for approval"
-    at_error "the pairing has expired; run this again when somebody is at the panel"
+if [ -n "$PAIR_CODE" ]; then
+  # The panel-issued direction: one request, no waiting. The code is spent the
+  # moment this succeeds, so a retry after success would tell the truth --
+  # "that code is not valid any more" -- and the fix is a new code, not a loop.
+  BARE_CODE="$(printf '%s' "$PAIR_CODE" | tr -d ' -' | tr '[:lower:]' '[:upper:]')"
+  if ! printf '%s' "$BARE_CODE" | grep -Eq '^[BCDFGHJKMNPQRSTVWXZ2-9]{12}$'; then
+    at_die "that is not a pair code; it is twelve characters, like BCDF-GHJK-MNPQ"
+  fi
+
+  claim_body="$(at_mktemp)"
+  claim_file="$(at_mktemp)"
+  chmod 600 "$claim_body" "$claim_file" 2>/dev/null || true
+
+  {
+    printf '{'
+    printf '"code":%s,' "$(at_json_quote "$BARE_CODE")"
+    printf '"deviceLabel":%s,' "$(at_json_quote "$DEVICE_LABEL")"
+    printf '"clientName":%s,' "$(at_json_quote "$AT_CLIENT_NAME")"
+    printf '"clientVersion":%s,' "$(at_json_quote "$AT_CLIENT_VERSION")"
+    printf '"projectHint":%s' "$(at_json_quote "$AT_PROJECT_NAME")"
+    printf '}'
+  } > "$claim_body"
+
+  claim_status="$(at_http_request POST "/v1/pairings/claim" "$claim_body" "$claim_file")"
+
+  if ! at_status_is_success "$claim_status"; then
+    if [ "$claim_status" = "000" ]; then
+      at_error "could not reach the monitoring API at $API_URL"
+    else
+      at_error "could not claim the pair code ($claim_status): $(at_error_message "$claim_file")"
+      at_error "a code works once and lasts ten minutes; generate a fresh one in the panel"
+    fi
     exit 1
   fi
 
-  sleep "$INTERVAL"
+  TOKEN="$(at_json_get "$claim_file" 'token.token')"
+  WORKSPACE_NAME="$(at_json_get "$claim_file" 'workspaceName')"
+  TOKEN_KIND="$(at_json_get "$claim_file" 'token.kind')"
+  TOKEN_NAME="$(at_json_get "$claim_file" 'token.name')"
+  : > "$claim_file"
+else
 
-  poll_status="$(at_http_request POST "/v1/pairings/token" "$poll_body" "$poll_file")"
+  request_file="$(at_mktemp)"
+  response_file="$(at_mktemp)"
 
-  # A 429 here is the server pacing us, not a failure. at_http_request has
-  # already retried with backoff; waiting another interval is the whole handling.
-  if [ "$poll_status" = "429" ]; then
-    continue
+  {
+    printf '{'
+    printf '"deviceLabel":%s,' "$(at_json_quote "$DEVICE_LABEL")"
+    printf '"clientName":%s,' "$(at_json_quote "$AT_CLIENT_NAME")"
+    printf '"clientVersion":%s,' "$(at_json_quote "$AT_CLIENT_VERSION")"
+    printf '"projectHint":%s' "$(at_json_quote "$AT_PROJECT_NAME")"
+    printf '}'
+  } > "$request_file"
+
+  status="$(at_http_request POST "/v1/pairings" "$request_file" "$response_file")"
+
+  if ! at_status_is_success "$status"; then
+    if [ "$status" = "000" ]; then
+      at_error "could not reach the monitoring API at $API_URL"
+    else
+      at_error "could not start pairing ($status): $(at_error_message "$response_file")"
+    fi
+    exit 1
   fi
 
-  if ! at_status_is_success "$poll_status"; then
-    if [ "$poll_status" = "000" ]; then
-      at_debug "API unreachable while polling; will try again"
+  DEVICE_CODE="$(at_json_get "$response_file" 'deviceCode')"
+  USER_CODE="$(at_json_get "$response_file" 'userCode')"
+  VERIFY_URL="$(at_json_get "$response_file" 'verificationUri')"
+  INTERVAL="$(at_json_get "$response_file" 'intervalSeconds')"
+  case "$INTERVAL" in
+    ''|*[!0-9]*) INTERVAL=5 ;;
+  esac
+
+  # The device code must not survive this process. The response file is a
+  # temporary that at_cleanup_temp removes on exit, but it holds the one secret
+  # worth holding, so it is truncated the moment it has been read rather than
+  # left lying around for however long this script waits.
+  : > "$response_file"
+
+  if [ -z "$DEVICE_CODE" ] || [ -z "$USER_CODE" ]; then
+    at_die "the API did not return a pairing; check that $API_URL is the monitoring API"
+  fi
+
+  printf '\n'
+  printf 'Pair this machine\n'
+  printf '  1. Open   %s\n' "$VERIFY_URL"
+  printf '  2. Sign in, then enter this code:\n'
+  printf '\n'
+  printf '        %s\n' "$USER_CODE"
+  printf '\n'
+  printf '  3. Check that the screen names this machine (%s) and the workspace\n' "$DEVICE_LABEL"
+  printf '     you meant, then approve.\n'
+  printf '\n'
+  printf 'This code alone cannot grant anything. Waiting for approval'
+  printf ' (up to %s seconds)...\n' "$TIMEOUT_SECONDS"
+
+  poll_file="$(at_mktemp)"
+  poll_body="$(at_mktemp)"
+  printf '{"deviceCode":%s}' "$(at_json_quote "$DEVICE_CODE")" > "$poll_body"
+  chmod 600 "$poll_body" 2>/dev/null || true
+
+  DEADLINE=$(( $(at_epoch_seconds) + TIMEOUT_SECONDS ))
+  TOKEN=""
+
+  while : ; do
+    if [ "$(at_epoch_seconds)" -ge "$DEADLINE" ]; then
+      at_error "gave up waiting for approval"
+      at_error "the pairing has expired; run this again when somebody is at the panel"
+      exit 1
+    fi
+
+    sleep "$INTERVAL"
+
+    poll_status="$(at_http_request POST "/v1/pairings/token" "$poll_body" "$poll_file")"
+
+    # A 429 here is the server pacing us, not a failure. at_http_request has
+    # already retried with backoff; waiting another interval is the whole handling.
+    if [ "$poll_status" = "429" ]; then
       continue
     fi
-    at_error "pairing failed ($poll_status): $(at_error_message "$poll_file")"
-    exit 1
-  fi
 
-  pair_status="$(at_json_get "$poll_file" 'status')"
-  case "$pair_status" in
-    pending)
-      continue
-      ;;
-    denied)
-      # Deliberately a different message from the timeout one. Somebody looked
-      # at this and said no; running the command again is not the answer.
-      at_error "the pairing was refused in the panel"
-      at_error "no token was issued. Ask whoever refused it what they saw."
+    if ! at_status_is_success "$poll_status"; then
+      if [ "$poll_status" = "000" ]; then
+        at_debug "API unreachable while polling; will try again"
+        continue
+      fi
+      at_error "pairing failed ($poll_status): $(at_error_message "$poll_file")"
       exit 1
-      ;;
-    expired)
-      at_error "the pairing expired before it was approved"
-      at_error "run this again and have somebody ready at the panel"
-      exit 1
-      ;;
-    approved)
-      TOKEN="$(at_json_get "$poll_file" 'token.token')"
-      WORKSPACE_NAME="$(at_json_get "$poll_file" 'workspaceName')"
-      TOKEN_KIND="$(at_json_get "$poll_file" 'token.kind')"
-      TOKEN_NAME="$(at_json_get "$poll_file" 'token.name')"
-      : > "$poll_file"
-      break
-      ;;
-    *)
-      at_error "the API answered with an unrecognised pairing status '$pair_status'"
-      exit 1
-      ;;
-  esac
-done
+    fi
+
+    pair_status="$(at_json_get "$poll_file" 'status')"
+    case "$pair_status" in
+      pending)
+        continue
+        ;;
+      denied)
+        # Deliberately a different message from the timeout one. Somebody looked
+        # at this and said no; running the command again is not the answer.
+        at_error "the pairing was refused in the panel"
+        at_error "no token was issued. Ask whoever refused it what they saw."
+        exit 1
+        ;;
+      expired)
+        at_error "the pairing expired before it was approved"
+        at_error "run this again and have somebody ready at the panel"
+        exit 1
+        ;;
+      approved)
+        TOKEN="$(at_json_get "$poll_file" 'token.token')"
+        WORKSPACE_NAME="$(at_json_get "$poll_file" 'workspaceName')"
+        TOKEN_KIND="$(at_json_get "$poll_file" 'token.kind')"
+        TOKEN_NAME="$(at_json_get "$poll_file" 'token.name')"
+        : > "$poll_file"
+        break
+        ;;
+      *)
+        at_error "the API answered with an unrecognised pairing status '$pair_status'"
+        exit 1
+        ;;
+    esac
+  done
+
+fi
 
 [ -n "$TOKEN" ] || at_die "the pairing was approved but no token came back; try again"
 
@@ -240,25 +304,25 @@ if [ "$SCOPE" = "project" ]; then
     at_info "added $AT_PROJECT_SECRET_NAME to .gitignore"
   fi
 else
-  mkdir -p "$(dirname "$AT_CREDENTIALS_FILE")"
-  chmod 700 "$(dirname "$AT_CREDENTIALS_FILE")" 2>/dev/null || true
-  write_json "$AT_CREDENTIALS_FILE"
-  at_info "stored for every project on this machine in $AT_CREDENTIALS_FILE"
-fi
+    mkdir -p "$(dirname "$AT_CREDENTIALS_FILE")"
+    chmod 700 "$(dirname "$AT_CREDENTIALS_FILE")" 2>/dev/null || true
+    write_json "$AT_CREDENTIALS_FILE"
+    at_info "stored for every project on this machine in $AT_CREDENTIALS_FILE"
+  fi
 
-# The token is not printed, here or anywhere. Its kind and where it points are
-# what a person needs in order to know the pairing did what they approved.
-printf '\n'
-printf 'Paired.\n'
-printf 'Workspace    : %s\n' "${WORKSPACE_NAME:-unknown}"
-printf 'Token        : %s (%s)\n' "${TOKEN_NAME:-unnamed}" "${TOKEN_KIND:-unknown}"
-printf 'Project name : %s\n' "$AT_PROJECT_NAME"
-printf '\n'
-printf 'Revoke it from the panel any time; the Tokens screen lists it by that name.\n'
+  # The token is not printed, here or anywhere. Its kind and where it points are
+  # what a person needs in order to know the pairing did what they approved.
+  printf '\n'
+  printf 'Paired.\n'
+  printf 'Workspace    : %s\n' "${WORKSPACE_NAME:-unknown}"
+  printf 'Token        : %s (%s)\n' "${TOKEN_NAME:-unnamed}" "${TOKEN_KIND:-unknown}"
+  printf 'Project name : %s\n' "$AT_PROJECT_NAME"
+  printf '\n'
+  printf 'Revoke it from the panel any time; the Tokens screen lists it by that name.\n'
 
-# Once, at the end of the one command a person runs by hand. Not in the
-# reporting scripts: those run dozens of times a session, and a tool that thanks
-# you on every event is a tool whose output people stop reading -- including the
-# lines that say something went wrong.
-printf '\n'
-printf 'Thank you for using AgentMagnify.\n'
+  # Once, at the end of the one command a person runs by hand. Not in the
+  # reporting scripts: those run dozens of times a session, and a tool that thanks
+  # you on every event is a tool whose output people stop reading -- including the
+  # lines that say something went wrong.
+  printf '\n'
+  printf 'Thank you for using AgentMagnify.\n'

@@ -120,7 +120,14 @@ if ! at_have_token; then
 fi
 
 RESPONSE_FILE="$(at_mktemp)"
-STATUS="$(at_http_request POST /v1/snapshots "$REQUEST_FILE" "$RESPONSE_FILE")"
+# The project travels in the query string, because that is where the route
+# reads it. A project token needs none; a workspace ingestion token is
+# refused without it, and the session already knows which project it opened.
+SNAPSHOT_PATH="/v1/snapshots"
+if [ -n "$AT_PROJECT_ID" ]; then
+  SNAPSHOT_PATH="/v1/snapshots?projectId=$AT_PROJECT_ID"
+fi
+STATUS="$(at_http_request POST "$SNAPSHOT_PATH" "$REQUEST_FILE" "$RESPONSE_FILE")"
 
 if at_status_is_success "$STATUS"; then
   at_info "snapshot ($KIND) recorded"

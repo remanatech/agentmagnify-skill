@@ -89,7 +89,7 @@ rejects observer event types from any other kind.
 
 | Policy field | Default | Meaning |
 | --- | --- | --- |
-| `observerIntervalSeconds` | 120 | How often the observer checks. |
+| `observerIntervalSeconds` | 600 | The observer's fallback for silent stretches; it runs event-driven at transitions, not on this timer. |
 | `snapshotIntervalSeconds` | 300 | How often a full snapshot goes out regardless of change. |
 | `heartbeatIntervalSeconds` | 300 | How often to prove liveness when nothing is happening. |
 | `reportOnlyMeaningfulChanges` | true | Silence is a valid report. |

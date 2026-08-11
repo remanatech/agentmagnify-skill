@@ -94,7 +94,8 @@ else
 fi
 
 for SCRIPT in lib.sh fetch-schema.sh start-session.sh report-event.sh send-snapshot.sh \
-              send-heartbeat.sh flush-pending-events.sh complete-session.sh self-test.sh; do
+              send-heartbeat.sh flush-pending-events.sh complete-session.sh self-test.sh \
+              upload-artifact.sh; do
   if bash -n "$SCRIPT_DIR/$SCRIPT" 2>/dev/null; then
     pass "$SCRIPT parses"
   else
@@ -103,7 +104,8 @@ for SCRIPT in lib.sh fetch-schema.sh start-session.sh report-event.sh send-snaps
 done
 
 for SCRIPT in fetch-schema.sh start-session.sh report-event.sh send-snapshot.sh \
-              send-heartbeat.sh flush-pending-events.sh complete-session.sh self-test.sh; do
+              send-heartbeat.sh flush-pending-events.sh complete-session.sh self-test.sh \
+              upload-artifact.sh; do
   if [ -x "$SCRIPT_DIR/$SCRIPT" ]; then
     pass "$SCRIPT is executable"
   else
@@ -798,7 +800,7 @@ check "pair.sh never prints the token it received" \
 # And the response that carried them is emptied as soon as it has been read,
 # rather than left on disk for however long the script waits.
 check "pair.sh truncates the files that held a secret" \
-  "$(grep -cq '^: > "\$response_file"' "$PAIR_SCRIPT" && grep -q ': > "\$poll_file"' "$PAIR_SCRIPT"; printf '%s' $?)"
+  "$(grep -Eq '^[[:space:]]*: > "\$response_file"' "$PAIR_SCRIPT" && grep -q ': > "\$poll_file"' "$PAIR_SCRIPT" && grep -q ': > "\$claim_file"' "$PAIR_SCRIPT"; printf '%s' $?)"
 
 # It writes the credential the same way login.sh does: 0600, and never into a
 # file that is committed.
@@ -830,6 +832,35 @@ check "pair.sh distinguishes a refusal from an expiry" \
   "$(grep -q 'was refused in the panel' "$PAIR_SCRIPT" && grep -q 'expired before it was approved' "$PAIR_SCRIPT"; printf '%s' $?)"
 
 # The environment variable stays the documented fallback. This is the assertion
+# The panel-issued direction: a code pasted in place of a wait. Only the
+# offline half is testable here -- a malformed code must die before any
+# request, and the help must document the flag.
+check "pair.sh --help documents --code" \
+  "$(printf '%s' "$PAIR_HELP" | grep -q -- '--code'; printf '%s' $?)" \
+  "$PAIR_HELP"
+check "pair.sh refuses a malformed pair code before touching the network" \
+  "$(bash "$PAIR_SCRIPT" --code NOPE >/dev/null 2>&1; [ $? -ne 0 ]; printf '%s' $?)"
+
+# ---------------------------------------------------------------------------
+# upload-artifact.sh -- offline behaviour only; the flow needs a store.
+# ---------------------------------------------------------------------------
+
+UPLOAD_SCRIPT="$SCRIPT_DIR/upload-artifact.sh"
+UPLOAD_HELP="$(bash "$UPLOAD_SCRIPT" --help 2>&1 || true)"
+
+check "upload-artifact.sh --help explains itself without contacting anything" \
+  "$(printf '%s' "$UPLOAD_HELP" | grep -q 'storage allowance'; printf '%s' $?)" \
+  "$UPLOAD_HELP"
+check "upload-artifact.sh refuses a missing file" \
+  "$(bash "$UPLOAD_SCRIPT" /nonexistent/file.png >/dev/null 2>&1; [ $? -ne 0 ]; printf '%s' $?)"
+check "upload-artifact.sh refuses an unknown option rather than guessing" \
+  "$(bash "$UPLOAD_SCRIPT" --nonsense >/dev/null 2>&1; [ $? -ne 0 ]; printf '%s' $?)"
+UNKNOWN_TYPE_FILE="$(at_mktemp).mystery"
+printf 'x' > "$UNKNOWN_TYPE_FILE"
+check "upload-artifact.sh will not guess a content type it cannot infer" \
+  "$(bash "$UPLOAD_SCRIPT" "$UNKNOWN_TYPE_FILE" >/dev/null 2>&1; [ $? -ne 0 ]; printf '%s' $?)"
+rm -f "$UNKNOWN_TYPE_FILE"
+
 # that the new path was added rather than substituted.
 MISSING_TOKEN_HELP="$(env -u AGENTMAGNIFY_TOKEN bash -c '
   . "$1/lib.sh"
@@ -1003,6 +1034,42 @@ check "and complete-session stops it, so a closed session stops claiming to be a
 check "the daemon gives up on its own when no event has arrived" \
   "$( grep -q 'MAX_SILENCE' "$AT_LIB_DIR/heartbeat-daemon.sh" && echo 0 || echo 1 )" \
   "no silence ceiling in heartbeat-daemon.sh"
+
+# Started, left alone long enough to be genuinely asleep, then stopped.
+#
+# The sleep is the point. Bash does not run a trap while waiting for a
+# foreground child, so a daemon sitting in `sleep 300` ignored SIGTERM for up
+# to five minutes: stopping it looked like it worked -- kill returns 0, the pid
+# file goes -- while the process lived on and could send one more heartbeat
+# after the session had closed.
+#
+# The first version of this check killed the daemon one second after starting
+# it and passed, because the signal arrived before the sleep did. It was a race
+# that reported the answer I wanted, and it is why this one waits first.
+HB_HOME="$(mktemp -d "${TMPDIR:-/tmp}/agentmagnify-hb.XXXXXX")"
+mkdir -p "$HB_HOME/state"
+printf '{"sessionId":"self-test"}\n' > "$HB_HOME/state/session.json"
+printf '1\n' > "$HB_HOME/state/sequence"
+
+HB_PID="$(env AGENTMAGNIFY_STATE_DIR="$HB_HOME/state" \
+  AGENTMAGNIFY_HEARTBEAT_SECONDS=60 AGENTMAGNIFY_HEARTBEAT_MAX_SILENCE=999999 \
+  AGENTMAGNIFY_API_URL="http://127.0.0.1:1" \
+  bash -c '. "'"$AT_LIB_DIR"'/lib.sh"; at_load_config >/dev/null 2>&1; at_start_heartbeat; cat "$AT_HEARTBEAT_PID_FILE"' 2>/dev/null)"
+
+check "the heartbeat daemon starts" \
+  "$( [ -n "$HB_PID" ] && kill -0 "$HB_PID" 2>/dev/null && echo 0 || echo 1 )" \
+  "pid '$HB_PID'"
+
+sleep 3
+env AGENTMAGNIFY_STATE_DIR="$HB_HOME/state" \
+  bash -c '. "'"$AT_LIB_DIR"'/lib.sh"; at_load_config >/dev/null 2>&1; at_stop_heartbeat' >/dev/null 2>&1
+
+check "and stopping it stops it, even mid-sleep" \
+  "$( kill -0 "$HB_PID" 2>/dev/null && echo 1 || echo 0 )" \
+  "pid $HB_PID survived at_stop_heartbeat"
+
+kill -9 "$HB_PID" 2>/dev/null || true
+rm -rf "$HB_HOME"
 
 # A version written into prose is a version that goes stale silently: SKILL.md
 # claimed the handshake sent 0.1.0 three releases after it stopped doing so.

@@ -5,523 +5,289 @@ description: Report live project state to AgentMagnify. Use at the start of any 
 
 # AgentMagnify
 
-This skill turns what your agents are already doing into a live project record the
-user can watch from a panel: roadmap, phases, tasks, which agent is on what, test
-and build evidence, blockers, decisions, and an independent verification of every
-completion claim.
+This skill turns what your agents are already doing into a live project record
+the user watches from a panel: roadmap, tasks, test and build evidence,
+blockers, decisions, and an independent verification of every completion claim.
 
-You report; you do not stop working to report. Every helper script in this package
-exits 0 on a network failure and queues the event locally instead.
+You report; you do not stop working to report. Every helper script exits 0 on a
+network failure and queues the event locally instead. When a flag or shape is
+unclear, read `references/examples.md` — worked examples for every situation —
+rather than guessing; do not read it routinely.
 
 ## 1. When this skill is active
 
-Activate it when all of the following are true:
+Activate when both are true:
 
-- the session is doing project work (building, refactoring, testing, shipping) and
-  not answering a one-off question
-- `scripts/login.sh --status` succeeds, meaning a credential resolves from
-  somewhere
-
-Check the credential with that command, not by looking for an environment
-variable. The recommended setup is `pair.sh`, which stores the token in
-`~/.agentmagnify/credentials.json` and exports nothing — so a machine that is
-correctly paired has no `AGENTMAGNIFY_TOKEN`, and treating that variable as
-the test would switch this skill off exactly where it is meant to be on.
+- the session is project work (building, refactoring, testing, shipping), not a
+  one-off question;
+- `scripts/login.sh --status` succeeds. Use that command, never an env-var
+  check: `pair.sh` stores the token in a file and exports nothing, so a
+  correctly paired machine has no `AGENTMAGNIFY_TOKEN`.
 
 If no credential resolves, say so once, in one line, and continue working
-normally. Do not ask for it repeatedly and do not block on it.
+normally. Never block on it, never ask repeatedly.
+
+**Invoked with a pair code** (`/agentmagnify BCDF-GHJK-MNPQ` — twelve
+characters, three groups): pairing is the task. Run
+`bash scripts/pair.sh --code BCDF-GHJK-MNPQ` before anything else. The code
+works once and lasts ten minutes; if it fails as expired or used, ask the user
+for a fresh one from the panel's Pair screen. After a successful claim,
+continue with the startup sequence.
+
+**Cloud / ephemeral sessions** (Claude Code on the web, CI sandboxes): same
+skill, two right credential paths — a pasted pair code, or
+`AGENTMAGNIFY_TOKEN` provisioned in the environment. Capabilities are whatever
+the platform really has (a cloud Claude Code session still has sub-agents,
+hooks and background tasks — declare `full`). Set `AGENTMAGNIFY_DEVICE_LABEL`
+or `AGENTMAGNIFY_EXECUTOR_LABEL` to something like `claude-cloud` so the panel
+says where the work happened.
 
 ### Configuration
 
-Nothing has to be exported. The user runs one command per machine and every
-project reuses it:
+Setup is one command per machine: `bash scripts/pair.sh` (a person approves in
+the panel; no secret is ever displayed). Headless environments use
+`bash scripts/login.sh wsi_live_…` or `AGENTMAGNIFY_TOKEN`.
 
-```bash
-bash scripts/pair.sh
-```
+Credential resolution, first hit wins: `AGENTMAGNIFY_TOKEN` env →
+`.agentmagnify.local.json` (git-ignored, project-scoped) →
+`~/.agentmagnify/credentials.json` (0600). Project identity, first hit wins:
+`AGENTMAGNIFY_PROJECT_NAME` → committed `.agentmagnify.json` (never holds a
+token; scripts refuse if one appears) → git remote name → directory name. With
+a workspace ingestion token a fresh repository needs no setup at all.
 
-That prints a short code and waits. The user opens the panel, signs in, types
-the code, sees which machine is asking and what it will be able to do, and
-approves. The token then arrives over the connection the script already has
-open. Nothing is displayed for anybody to copy, which is the point: a secret
-read off a screen and pasted into a terminal is a secret in shell history and
-in every screenshot of that window afterwards.
+| Variable | Meaning |
+| --- | --- |
+| `AGENTMAGNIFY_TOKEN` | Overrides the stored credential. Never print or echo it. |
+| `AGENTMAGNIFY_API_URL` | API base URL; set for self-hosted installs. |
+| `AGENTMAGNIFY_PROJECT_NAME` | Overrides the inferred name (wsi tokens only). |
 
-Where there is no person and no browser — CI, a container, an image build — the
-old path is unchanged and is the right one:
-
-```bash
-bash scripts/login.sh wsi_live_xxxxxxxx    # or set AGENTMAGNIFY_TOKEN
-```
-
-The scripts resolve the credential themselves, first hit wins:
-
-1. `AGENTMAGNIFY_TOKEN` in the environment — CI and one-off overrides
-2. `.agentmagnify.local.json` in the project (git-ignored) — a project that
-   needs its own scoped token
-3. `~/.agentmagnify/credentials.json` — written by `pair.sh` or `login.sh`,
-   mode 0600
-
-And the project identity, also first hit wins:
-
-1. `AGENTMAGNIFY_PROJECT_NAME`
-2. `.agentmagnify.json` in the project — **committed, and never holds a
-   token**. The scripts refuse to run if a token appears in it, because that
-   file is meant to be shared.
-3. The git remote's repository name, else the directory name
-
-With a workspace ingestion token that means a new repository needs no setup at
-all: the project is created on first contact under its own name.
-
-If reporting is not configured, say so once and carry on with the real work.
-
-| Variable | Required | Meaning |
-| --- | --- | --- |
-| `AGENTMAGNIFY_TOKEN` | no | Overrides the stored credential. Never print it, never echo it, never write it into a file you create. |
-| `AGENTMAGNIFY_API_URL` | no | API base URL. Defaults to `https://api.agentmagnify.com`. Set it for a self-hosted installation. |
-| `AGENTMAGNIFY_PROJECT_NAME` | no | Overrides the inferred project name. Only meaningful with a `wsi_live_` token; a `prj_live_` token is already bound to one project. |
-
-Optional, rarely needed: `AGENTMAGNIFY_AGENT_ID`, `AGENTMAGNIFY_AGENT_ROLE`,
-`AGENTMAGNIFY_AGENT_KIND` (per-agent reporting identity defaults),
-`AGENTMAGNIFY_EXECUTOR` (`claude-code`, `codex`, `cursor`, `aider`, `custom`, or
-any other name -- an unrecognised one reports as `custom` and is carried through
-as the label, so an environment this list has never heard of still says what it
-is), `AGENTMAGNIFY_EXECUTOR_LABEL` (overrides that label outright),
-`AGENTMAGNIFY_CAPABILITIES` (space-separated capability override),
-`AGENTMAGNIFY_DEBUG=1` (verbose logging to stderr).
-
-Heartbeat, all optional: `AGENTMAGNIFY_HEARTBEAT=0` switches the background
-process off entirely, `AGENTMAGNIFY_HEARTBEAT_SECONDS` sets the interval
-(default 300, floor 60 -- below a minute it stops being a liveness signal and
-becomes traffic), `AGENTMAGNIFY_HEARTBEAT_MAX_SILENCE` sets how long it keeps
-going with no events before deciding the agent has gone (default 1800).
+Rarely needed: `AGENTMAGNIFY_AGENT_ID/_ROLE/_KIND` (reporter defaults),
+`AGENTMAGNIFY_EXECUTOR` / `_EXECUTOR_LABEL` (environment identity; unknown
+names report as `custom` with the name as label), `AGENTMAGNIFY_CAPABILITIES`,
+`AGENTMAGNIFY_DEBUG=1`. Heartbeat: `AGENTMAGNIFY_HEARTBEAT=0` off,
+`_SECONDS` interval (default 300, floor 60), `_MAX_SILENCE` (default 1800).
 
 ## 2. Startup sequence
 
-Run this once, at the beginning of the session, before creating any sub-agent.
+Once, at the beginning, before creating any sub-agent:
 
 ```bash
-# 1. Verify a credential can be resolved. Never prints the token itself.
-scripts/login.sh --status
-
-# 2+3+4. Handshake, cache the protocol bundle, create the session.
-scripts/start-session.sh
+scripts/login.sh --status     # 1. a credential resolves; never prints it
+scripts/start-session.sh      # 2. handshake + schema cache + session + panel URL
 ```
 
-`start-session.sh` does the whole handshake in one step:
+`start-session.sh` verifies the token (a rejected one degrades to offline, it
+never aborts), performs the handshake with the detected executor and
+capabilities, caches the protocol bundle and reporting policy in
+`state/schema.json`, writes `state/session.json` (session id, project id,
+reporting mode, panel URL), starts the background heartbeat, and prints the
+panel URL — show it to the user once.
 
-1. **Verify the token.** A missing or rejected token degrades to offline mode; it
-   never aborts the session.
-2. **Handshake.** `POST /v1/agent/sessions` with the client name
-   `agentmagnify-skill`, its version from `lib.sh`, the detected executor, and
-   the capabilities from section 4. The number is not repeated here: it
-   was, and it named the first release three releases later.
-3. **Cache the schema and policy.** It then calls `fetch-schema.sh` for the exact
-   protocol version the server pinned this session to, and stores the JSON Schema,
-   the reporting policy and the agent instructions in `state/schema.json`.
-   The protocol version does not change for the life of the session.
-4. **Create the session.** `state/session.json` holds the session id, project id,
-   protocol version, reporting policy, panel URL and reporting mode.
-5. It prints the **panel URL** on stdout. Show that URL to the user once.
+Then you owe three things:
 
-Then you do the remaining three steps yourself:
+1. **Keep §5's rules in working memory** — you are the main agent.
+2. **Inject the rules into every sub-agent prompt**: its `--agent-id`, its
+   `--role`, `--kind logical`, §6's table, and §7's dual-report rule. An
+   untold sub-agent reports nothing and shows as silent.
+3. **Start the Project Observer** (`agents/project-observer.md`) as a
+   background sub-agent when the mode supports it (§4).
 
-6. **Inject the reporting rules into the main agent** - that is you. Section 5 is
-   the rule set. Keep it in working memory for the rest of the session.
-7. **Inject the reporting rules into every sub-agent you create.** Every sub-agent
-   prompt must carry: its `--agent-id`, its `--role`, `--kind logical`, the
-   sub-agent rules from section 6, and the dual-report rule from section 7. A
-   sub-agent that was not told to report will not report, and the panel will show
-   a silent agent.
-8. **Start the Project Observer** (`agents/project-observer.md`) as a background
-   sub-agent, and **enable the routine check**: the observer runs every
-   `reporting.observerIntervalSeconds` (default 120s) and after any event listed in
-   `reporting.runObserverOnEvents`. If your platform cannot run background tasks,
-   see section 4.
-
-At the end of the session:
+At the end — and not early:
 
 ```bash
-scripts/complete-session.sh --summary "One or two sentences on what was delivered and what is still open."
+scripts/complete-session.sh --summary "One or two sentences: delivered, and still open."
 ```
 
-This drains the offline queue, sends the closing snapshot, and closes the session.
-A session that is never completed shows up in the panel as `interrupted`, which is
-the honest reading - so run it, and do not run it early.
+It drains the queue, sends the closing snapshot, closes the session. A session
+never completed shows as `interrupted`, which is the honest reading.
 
 ## 3. The scripts
 
-All of them live in `scripts/` and are safe to call at any time.
+All in `scripts/`, all safe to call at any time.
 
 | Script | Use |
 | --- | --- |
 | `start-session.sh` | Open the session. Prints the panel URL. |
-| `report-event.sh` | Send one event. The main entry point. |
-| `send-snapshot.sh` | Send a project snapshot. Observer only, plus session close. |
-| `send-heartbeat.sh` | One liveness ping. You do not normally call this: `start-session.sh` starts a background process that does it for you. |
-| `heartbeat-daemon.sh` | That background process. Started and stopped for you; not meant to be run by hand. |
-| `flush-pending-events.sh` | Drain the offline queue. `--replay-dead-letters` also re-sends what a refused credential held back. Safe to call repeatedly. |
+| `report-event.sh` | Send one event. The main entry point. `--help` lists every flag. |
+| `upload-artifact.sh` | Upload a file (screenshot, report, log) and report it as an artifact in one call. |
+| `send-snapshot.sh` | Project snapshot. Observer only, plus session close. |
+| `send-heartbeat.sh` / `heartbeat-daemon.sh` | Liveness. Started and stopped for you; not run by hand. |
+| `flush-pending-events.sh` | Drain the offline queue. `--replay-dead-letters` re-sends what a refused credential held. |
 | `complete-session.sh` | Close the session. |
-| `fetch-schema.sh` | Refresh the cached protocol bundle. Called by `start-session.sh`. |
+| `pair.sh` / `login.sh` | Get or store a credential. |
+| `fetch-schema.sh` | Refresh the cached protocol bundle (called for you). |
 | `self-test.sh` | Offline verification of this package. |
 
-`report-event.sh --help` lists every flag. The shape is always the same:
-
-```bash
-scripts/report-event.sh \
-  --type task.completed \
-  --task-id auth-api --task-title "Authentication API" \
-  --agent-id backend-developer --role backend --kind logical \
-  --summary "Authentication endpoints and token rotation implemented." \
-  --verification-method test --verification-result passed \
-  --verification-passed 18 --verification-failed 0 \
-  --evidence-changed-files 7 --evidence-commit a81f93c
-```
-
-It fills in `eventId`, `sessionId`, `projectId`, `protocolVersion`, `sequence` and
-`timestamp` for you. You supply the meaning.
+`report-event.sh` fills in `eventId`, `sessionId`, `projectId`,
+`protocolVersion`, `sequence` and `timestamp`; you supply the meaning.
+**Chain consecutive reports with `&&` in one shell invocation** when several
+belong to the same moment (a phase closing and the next opening) — fewer round
+trips, same events.
 
 ## 4. Capability detection and reporting modes
 
-Not every agent platform supports background sub-agents, hooks or periodic tasks.
-Decide the mode once, at startup, before creating the observer.
+Decide once, at startup, before creating the observer.
 
-**Decision procedure.** Answer three questions about the platform you are running
-on right now:
+**On Claude Code the answer is known: sub-agents, hooks and background tasks
+all exist — start in `full` mode.** Do not talk yourself down to `checkpoint`
+out of caution; declare less only if the user restricted the session or a
+capability has actually been refused. `start-session.sh` with no flags
+declares the full set, so the plain call is the right call there.
 
-1. Can you run a **sub-agent** that keeps working while you continue? -> `observer`
-2. Can you run **hooks or lifecycle callbacks** on task and tool events? -> `hooks`
-3. Can you run a **periodic or background task** on a timer? -> `background_tasks`
-
-Then:
+Everywhere else, three questions: can you run a sub-agent that keeps working
+while you continue (`observer`)? hooks or lifecycle callbacks (`hooks`)? a
+periodic background task (`background_tasks`)? Then:
 
 | Answers | Mode | What you do |
 | --- | --- | --- |
-| all three yes | **full** | Observer runs on its interval and on trigger events. Hooks report task transitions automatically. |
-| observer yes, hooks or background tasks no | **observer** | Observer runs, but you invoke it manually at meaningful transitions instead of on a timer. |
-| no observer, but you have a task list or roadmap | **checkpoint** | No observer. You and your sub-agents report at meaningful task transitions only. Send a snapshot at each phase boundary. |
-| none of the above | **fallback** | Self-reporting only: main agent and sub-agents send their own events. No derived events, no snapshots. |
+| all three | **full** | Observer runs at transitions and on trigger events; hooks report task transitions. |
+| observer only | **observer** | You invoke the observer manually at meaningful transitions. |
+| neither, but a roadmap exists | **checkpoint** | Report at task transitions; snapshot at each phase boundary. |
+| none | **fallback** | Self-reporting only; no derived events, no snapshots. |
 
-Pass what you detected to the handshake so the server records the same mode:
+Pass detected capabilities as repeated `--capability` flags (valid: `roadmap`,
+`tasks`, `subagents`, `observer`, `hooks`, `tests`, `builds`, `artifacts`,
+`deployments`, `background_tasks`). The server negotiates the final mode into
+`state/session.json` as `reportingMode`; offline, the skill negotiates the
+same rules locally. Do not claim a capability you do not have — a `full`
+session with no observer looks alive and reports nothing.
 
-```bash
-scripts/start-session.sh \
-  --capability roadmap --capability tasks --capability subagents \
-  --capability observer --capability hooks --capability tests \
-  --capability builds --capability artifacts --capability background_tasks
-```
+**The observer is event-driven, not a metronome.** Run it at phase
+boundaries, after any completion claiming verification, and on the trigger
+events the policy lists; the interval (`reporting.observerIntervalSeconds`,
+default 600s) is the fallback for long silent stretches, not a schedule to
+fill. Every observer run is a whole agent invocation — spend it where a claim
+needs checking.
 
-Valid capabilities: `roadmap`, `tasks`, `subagents`, `observer`, `hooks`, `tests`,
-`builds`, `artifacts`, `deployments`, `background_tasks`.
+## 5. Rules for the MAIN agent
 
-The server negotiates the final mode and writes it to `state/session.json` as
-`reportingMode`. Read it back if you need to branch on it. When the API is
-unreachable, the skill negotiates the same mode locally from the same rules.
+You own structure and orchestration. **Whoever does the work reports it**: if
+you delegate, the sub-agent reports (§7); **if you do the task yourself, §6's
+table is yours** under `--agent-id main-agent`. Working alone is the ordinary
+case and excuses nothing.
 
-Do not claim a capability you do not have. A `full` mode session with no observer
-produces a panel that looks alive and reports nothing.
-
-## 5. Reporting rules for the MAIN agent
-
-You own the project level: structure and orchestration.
-
-**Whoever does the work reports it.** If you delegate a task, the sub-agent
-reports it and you do not (§7). **If you do the task yourself, §6's table is
-yours** - `task.started`, `task.completed`, `test.*`, `build.*`,
-`artifact.created`, all of it, under your own `--agent-id main-agent`.
-
-This is not a footnote. Working alone is the ordinary case: nothing in this
-skill asks you to create sub-agents, and most sessions have none. §6 exists so
-that a sub-agent reports its own work instead of you relaying it. It does not
-exist to excuse anybody from reporting work that nobody else did.
-
-**Every task you declared ends.** A task in the roadmap you sent finishes in
-exactly one of `task.completed`, `task.failed` or `task.blocked`, or leaves the
-roadmap through `roadmap.updated`. Before `complete-session.sh`, go through the
-roadmap and check: any task with no terminal event is a task the panel still
-believes is unfinished.
-
-The panel's progress figure is arithmetic on what you sent, not an opinion. A
-roadmap declaring thirteen tasks against which one completion arrived reads as
-eight per cent, and it reads that way whether or not the work was finished -
-which is exactly what happened the first time this skill was used on a real
-project.
+**Every task you declared ends** in exactly one of `task.completed`,
+`task.failed`, `task.blocked`, or leaves via `roadmap.updated`. Before
+completing the session, sweep the roadmap: a task with no terminal event reads
+as unfinished forever, and progress is arithmetic on what you sent — thirteen
+declared tasks with one completion reads as 8%, finished or not.
 
 | Event | When |
 | --- | --- |
-| `roadmap.created` | Once, as soon as the roadmap exists. Send the whole roadmap: phases, tasks, weights. |
-| `roadmap.updated` | The roadmap changes shape: a phase or task is added, removed, re-scoped or re-weighted. |
-| `phase.started` / `phase.completed` | A phase actually begins or all of its tasks are done. |
-| `task.created` | A task is added to the roadmap. |
-| `task.assigned` | A task is handed to a specific agent. Include `--task-assignee`. |
+| `roadmap.created` | Once, as soon as it exists: phases, tasks, weights, whole. |
+| `roadmap.updated` | The roadmap changes shape. |
+| `phase.started` / `phase.completed` | A phase actually begins / all its tasks are done. |
+| `task.created` / `task.assigned` | Added to the roadmap / handed to an agent (`--task-assignee`). |
 | `agent.created` / `agent.stopped` | You spin up or shut down a sub-agent. |
-| `decision.required` | You need a human answer to continue. Include the question and the options. |
-| `project.paused` / `project.resumed` / `project.completed` / `project.failed` | The project's lifecycle changes. |
+| `decision.required` | **A HUMAN answer is needed.** Question + options. |
+| `decision.resolved` | The answer arrived — or you made the call yourself. |
+| `project.*` | Lifecycle changes (paused/resumed/completed/failed). |
 
-```bash
-# The roadmap, once.
-scripts/report-event.sh --type roadmap.created --agent-id main-agent --role orchestrator --kind main \
-  --summary "Roadmap created: 4 phases, 18 tasks." \
-  --roadmap-json roadmap.json
+**Decisions route by who must answer.** `decision.required` puts the question
+in the user's attention queue — right when only they can answer, wrong when a
+sub-agent asked *you*. A call you make yourself is ONE `decision.resolved`
+(question + options + answer together): it lands in the history marked
+"answered by the agent" and never demands attention. If you sent
+`decision.required` and then answered it yourself, send `decision.resolved`
+immediately.
 
-# Creating a sub-agent.
-scripts/report-event.sh --type agent.created --agent-id backend-developer --role backend --kind logical \
-  --summary "Backend developer agent created for the authentication phase."
+Your identity: `--agent-id main-agent --role orchestrator --kind main`.
 
-# Handing over a task.
-scripts/report-event.sh --type task.assigned --task-id auth-api --task-title "Authentication API" \
-  --task-assignee backend-developer --agent-id main-agent --role orchestrator --kind main
+## 6. Rules for the agent DOING THE WORK
 
-# Needing a human.
-scripts/report-event.sh --type decision.required --decision-id queue-choice \
-  --decision-question "Redis or an in-memory queue for the workflow engine?" \
-  --decision-option "Redis" --decision-option "In-memory" \
-  --severity high --agent-id main-agent --role orchestrator --kind main
-```
-
-Your reporter identity is `--agent-id main-agent --role orchestrator --kind main`.
-
-## 6. Reporting rules for the agent DOING THE WORK
-
-If you delegated the task, put these in the sub-agent's prompt with its own id
-and role. **If you are doing the task yourself, they are yours** - same events,
-same timing, reported as `main-agent`.
+Same events whether it is a sub-agent (put these in its prompt with its own
+id/role) or you working alone.
 
 | Event | When |
 | --- | --- |
-| `task.started` | You begin work on a task. |
-| `task.progress` | A meaningful milestone inside the task. Include `--progress N`. Not on a timer, not per file. |
-| `task.completed` | The work is done **and** verification has finished. |
-| `task.failed` | You cannot deliver the task. |
-| `task.blocked` | Something outside your control stops you. Include a blocker. |
-| `test.started` / `test.passed` / `test.failed` | You ran tests. Report counts, not output. |
-| `build.started` / `build.completed` / `build.failed` | You ran a build. |
-| `artifact.created` | You produced something the user can look at: an endpoint, a page, a package, a migration. |
+| `task.started` | You begin a task. |
+| `task.progress` | A real milestone (`--progress N`). Not a timer, not per file. |
+| `task.completed` | Done **and** verification finished. |
+| `task.failed` / `task.blocked` | You cannot deliver / something external stops you (include a blocker). |
+| `test.*` / `build.*` | You ran tests or builds. Counts, never output. |
+| `artifact.created` | You produced something the user can look at. |
 
-```bash
-scripts/report-event.sh --type task.started --task-id auth-api --task-title "Authentication API" \
-  --agent-id backend-developer --role backend --kind logical \
-  --summary "Starting the authentication endpoints."
+**Artifacts carry URLs when one exists** — a deployed preview, a published
+page, a Claude Artifact you just published: put the address in
+`--artifact-url` the moment you have it. An artifact without a URL is a name
+nobody can open.
 
-scripts/report-event.sh --type test.failed --test-suite auth --test-command "npm test -- auth" \
-  --test-passed 15 --test-failed 3 --test-failing "rotates refresh tokens" \
-  --agent-id backend-developer --role backend --kind logical \
-  --summary "3 of 18 authentication tests fail on token rotation."
+**Evidence is uploaded, not described.** A screenshot of the working page, a
+failing test's report: `upload-artifact.sh FILE --kind screenshot
+--artifact-id X` does upload + confirmation + `artifact.created` in one call;
+cite it from the claim with `--evidence-artifact-id X`. For e2e/browser runs,
+report the run first, then attach one screenshot per *meaningful* step with
+`--test-run-id RUN --step N --step-status passed|failed` — the panel renders
+them as the run's visual flow. The failing step always, context steps
+sparingly, never a frame-by-frame recording. Only evidence types are accepted
+(images, text, csv, json, xml, pdf, zip — never HTML) and uploads count
+against the plan's storage allowance. If an upload fails, say so in one line,
+report the artifact without a URL if still worth it, and keep working.
 
-scripts/report-event.sh --type task.blocked --task-id workflow-queue \
-  --blocker-id redis-down --blocker-title "Redis connection refused on port 6379" \
-  --blocker-severity high \
-  --agent-id backend-developer --role backend --kind logical \
-  --summary "Cannot continue the queue implementation without Redis."
-```
-
-Every agent uses a stable `--agent-id` for the whole session. The panel groups
-by it: change it mid-session and one agent becomes two.
-
-Working alone, all of this is still owed. The commonest way to leave a project
-looking abandoned is to send the roadmap, start a phase, and then go quiet for
-an hour of real work - the panel has no way to tell that apart from an agent
-that stopped.
-
-### Staying visible while you work
-
-Liveness is not your job. `start-session.sh` starts a background process that
-heartbeats on its own, so the session stays active through silent work without
-anybody remembering anything. It stops when the session ends, and it stops on
-its own if no event has arrived for half an hour - a heartbeat is a claim that
-somebody is still working, and a dead session that looks alive is worse than one
-that honestly goes stale.
-
-**What it cannot do is say what changed.** Only you know that, so:
-
-**Report at every boundary in the work, not on a timer.** You have no clock. You
-act between tool calls, so "every five minutes" is not something you can do -
-but "before I start the next file, did I finish something?" is. A file written,
-a module working, a command that passed: that is a boundary.
-
-**Never let a task pass in silence.** If a task is taking a dozen edits, send
-`task.progress` on the way through with `--progress N` derived from the work
-actually done. Eleven files written and nothing sent is not a quiet task, it is
-an invisible one - and that is what the panel showed the first time this skill
-was used on a real project: a roadmap, one `task.started`, then nothing at all
-while an engine was built.
-
-**One line of what and one of what is next.** `--summary` is the sentence
-somebody reads to know where the project is without asking you.
+Use one stable `--agent-id` all session — the panel groups by it. Liveness is
+not your job (the heartbeat daemon has it); **what changed is**. Report at
+boundaries in the work — a module working, a command passing — not on a clock
+you do not have. A task taking a dozen edits gets `task.progress` on the way
+through; eleven files written in silence is an invisible task, and that is
+exactly what the panel showed the first time this skill met a real project.
+`--summary` is the one sentence somebody reads instead of asking you.
 
 ## 7. The dual-report rule
 
-Only relevant when you delegated the work. Alone, there is nobody to report to
-but the API, and §5 and §6 already say what you owe it.
-
-A sub-agent reports the same development **twice, in two formats, to two targets**:
-
-1. to the main agent, as a natural work report, in prose;
-2. to the Monitoring API, as a structured event, by calling `report-event.sh`
-   itself.
-
-**The main agent never relays a sub-agent's event.** Not a summary of it, not a
-re-send of it, not a "reporting on behalf of". The main agent is not a reporting
-bottleneck, and a relayed event is a second, false record of one real thing.
-
-If the main agent wants to comment on a sub-agent's report, it emits a **separate**
-event that points at the original:
-
-```bash
-scripts/report-event.sh --type task.reviewed --task-id auth-api \
-  --parent-event-id evt_01K...            # the sub-agent's task.completed event id \
-  --agent-id main-agent --role orchestrator --kind main \
-  --summary "Accepted for QA verification."
-```
-
-`report-event.sh` prints the event id it sent on stdout, so capture it when you
-need to reference it later:
-
-```bash
-EVENT_ID="$(scripts/report-event.sh --type task.completed ... | cut -d' ' -f1)"
-```
+Only when you delegated. A sub-agent reports the same development **twice**:
+to the main agent as prose, and to the API by calling `report-event.sh`
+itself. **The main agent never relays a sub-agent's event** — not a summary,
+not a re-send, not "on behalf of". To comment on one, emit a separate
+`task.reviewed` with `--parent-event-id` pointing at the original
+(`report-event.sh` prints each event id on stdout; capture it if needed).
 
 ## 8. The four rules that decide what you send
 
-**Completion rule.** Never report `task.completed` before the required
-verification has finished. If tests exist, run them first, then report with
-`--verification-method test --verification-result passed|failed`. If no
-verification is possible, report completion with `--verification-method none` and
-let the observer assess it. A completion claim with no evidence is a claim, and the
-panel will show it as unverified.
+- **Completion:** never `task.completed` before verification finishes. Tests
+  exist → run them, report `--verification-method test --verification-result
+  passed|failed`. Nothing verifiable → `--verification-method none` and the
+  observer assesses. An unevidenced completion shows as an unverified claim.
+- **Privacy:** metadata only — never secrets, env values, credentials, source
+  code, diffs, or terminal output. The local secret filter is a safety net,
+  not a licence.
+- **Progress:** derived from roadmap task weights, never elapsed time.
+- **Duplication:** one real event, one `eventId`. Retries are safe (the API
+  dedupes); never re-send someone else's event under a new id.
 
-**Privacy rule.** Never send secrets, environment variable values, credentials,
-private keys, tokens, source code blocks or full terminal output. Report metadata
-only: task name, status, short summary, counts, commit hash, changed-file count,
-agent id. The skill runs a local secret filter over every payload before it leaves
-the machine and the API filters again on arrival - but the filter is a safety net,
-not a licence to paste logs into a summary.
+**Never report:** per-file edits, per-command output, log lines, time-based
+percentages, your own reasoning or prompts, code or stack traces, or anything
+already reported and unchanged. Full decision table:
+`references/reporting-rules.md`.
 
-**Progress rule.** Progress is derived from roadmap task weights, never from
-elapsed time. "40% because we are 40 minutes into an hour" is not progress.
-"40% because 2 of 5 weighted tasks in this phase are done" is. Only report
-`task.progress` at a real milestone.
+## 9. When the API is unreachable
 
-**Duplication rule.** One real event, one `eventId`. The API deduplicates by
-`eventId`, so a retry is safe and a duplicate is recorded as a duplicate, not as a
-second event. Never re-send someone else's event under a new id.
+**Development never stops** — the scripts enforce it: `report-event.sh`
+queues to `state/pending-events.jsonl` and exits 0; `start-session.sh` writes
+an offline session so reporting begins anyway; `fetch-schema.sh` falls back to
+the cached bundle then `references/fallback-schema.json`; heartbeats give up
+silently (a late heartbeat is a lie). Drain with
+`scripts/flush-pending-events.sh` — in order, batches of ≤100, API dedupes,
+permanent rejections go to `state/dead-letter.jsonl`. Session open/close call
+it for you. Tell the user once: "The monitoring API is unreachable; events are
+queued locally and will be sent when it is back." Keep working.
 
-## 9. What NOT to report
+**A 401/403 is different and must be said out loud**: the API is refusing the
+token. Events are *held* (`deadLetterKind: credential` — never discarded, only
+`payload` rejections are), and the next successful `start-session.sh` replays
+them (≤200 per handshake, ≤once per 5 min; events older than 72h are retired
+rather than replayed onto a live timeline). The fix is a credential and
+nothing else: `scripts/pair.sh`, then `scripts/start-session.sh`. Tell the
+user once, plainly: "The monitoring token was refused — expired, revoked, or
+scoped elsewhere. Events are held on this machine; run `scripts/pair.sh` and
+they will be sent." Inspect or force a replay with
+`flush-pending-events.sh [--dry-run] --replay-dead-letters`.
 
-- per-file edits, per-command output, or anything you would call a log line
-- time-based percentages
-- your own internal reasoning or prompts
-- source code, diffs, file contents, stack traces
-- anything you already reported and that has not changed
+## 10. Reference
 
-See `references/reporting-rules.md` for the full decision table.
+- `references/examples.md` — worked examples for every situation above.
+- `references/event-types.md` — every event type, who may emit it, required fields.
+- `references/reporting-rules.md` — the "when do I report" decision table.
+- `references/fallback-schema.json` — offline protocol bundle (scripts use it; you never need to read it).
+- `agents/project-observer.md` — the Project Observer sub-agent definition.
 
-## 10. When the API is unreachable
-
-**Development never stops.** That is the rule, and the scripts are built to enforce
-it rather than trust you to remember it:
-
-- `report-event.sh` appends the event to `state/pending-events.jsonl` and exits 0.
-- `start-session.sh` writes a local offline session so reporting can begin anyway,
-  and marks the protocol `unverified`.
-- `fetch-schema.sh` falls back to the cached bundle, and then to
-  `references/fallback-schema.json`.
-- `send-heartbeat.sh` gives up silently: a late heartbeat is a lie about liveness.
-- Nothing waits, nothing retries forever, nothing aborts your work.
-
-Drain the queue when the API is back:
-
-```bash
-scripts/flush-pending-events.sh
-```
-
-It sends in order, in batches of at most 100, lets the API deduplicate, removes
-what was accepted, and moves permanently rejected events to
-`state/dead-letter.jsonl` rather than retrying them forever.
-`start-session.sh` and `complete-session.sh` call it for you. If the queued events
-were recorded before any session existed, the flush opens a real session first and
-rewrites their session id.
-
-Tell the user once, plainly: "The monitoring API is unreachable; events are being
-queued locally and will be sent when it is back." Then keep working.
-
-## 10.1 When the credential is refused
-
-A 401 or 403 is not the same failure as an unreachable API, and it is the one you
-have to say out loud. The API is answering; it is refusing the token. Nothing you
-report will arrive until somebody issues a new one, and the panel will show the
-project going quiet without saying why.
-
-The scripts still exit 0 — monitoring never stops development — but they do two
-things differently:
-
-- the event goes to `state/dead-letter.jsonl` marked `deadLetterKind: credential`,
-  which means *held*, not discarded. Anything the API refused on its own merits is
-  marked `payload` and is never sent again.
-- the next successful `start-session.sh` replays the held events automatically, at
-  most 200 per handshake and at most once every five minutes. Events older than
-  `AGENTMAGNIFY_QUEUE_MAX_AGE_HOURS` (72 by default) are retired instead of
-  replayed: reporting a two-day-old "task started" onto a live timeline would say
-  something that is no longer true.
-
-So the fix is a credential, and nothing else:
-
-```bash
-scripts/pair.sh          # approve it in the panel; nothing to copy
-scripts/start-session.sh # the held events go out on their own
-```
-
-Tell the user once, and do not bury it: "The monitoring token was refused — it is
-expired, revoked, or scoped to another project. Reporting is paused and the events
-are being held on this machine. Run `scripts/pair.sh` and they will be sent." Then
-keep working.
-
-To send them without opening a session, or to see what is held:
-
-```bash
-scripts/flush-pending-events.sh --dry-run --replay-dead-letters
-scripts/flush-pending-events.sh --replay-dead-letters
-```
-
-## 11. Quick start
-
-```bash
-export AGENTMAGNIFY_TOKEN=prj_live_xxxxxxxxxxxx
-export AGENTMAGNIFY_API_URL=https://api.your-monitor.example
-
-# Open the session. Prints the panel URL.
-scripts/start-session.sh
-
-# Main agent: publish the roadmap.
-scripts/report-event.sh --type roadmap.created --roadmap-json roadmap.json \
-  --agent-id main-agent --role orchestrator --kind main \
-  --summary "Roadmap created: 4 phases, 18 tasks."
-
-# Sub-agent: start, then finish with evidence.
-scripts/report-event.sh --type task.started --task-id auth-api --task-title "Authentication API" \
-  --agent-id backend-developer --role backend --kind logical \
-  --summary "Starting the authentication endpoints."
-
-scripts/report-event.sh --type task.completed --task-id auth-api \
-  --agent-id backend-developer --role backend --kind logical \
-  --summary "Authentication endpoints and token rotation implemented." \
-  --verification-method test --verification-result passed \
-  --verification-passed 18 --verification-failed 0 \
-  --evidence-changed-files 7 --evidence-commit a81f93c
-
-# Close the session.
-scripts/complete-session.sh --summary "Authentication delivered; workflow engine still open."
-```
-
-## 12. Reference
-
-- `references/event-types.md` - every event type, who may emit it, required fields.
-- `references/reporting-rules.md` - the "when do I report" decision table.
-- `references/fallback-schema.json` - the offline copy of the protocol bundle.
-- `agents/project-observer.md` - the Project Observer sub-agent definition.
-
-Verify the package at any time, with no network:
-
-```bash
-bash scripts/self-test.sh
-```
+Verify the package any time, offline: `bash scripts/self-test.sh`.

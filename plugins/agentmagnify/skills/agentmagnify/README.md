@@ -51,6 +51,19 @@ That is the whole setup, once per machine. The token is written to
 `~/.agentmagnify/credentials.json` with mode 0600 — not into your repository,
 not into a shell profile — and every project on the machine reuses it.
 
+The other direction works too, and is the right one for a cloud agent session
+— no terminal anybody watches, no filesystem that outlives the session. On the
+panel's Pair screen choose "Issue a pair code", configure what the agent may
+do, and paste the twelve-character code it gives you into the session:
+
+```
+/agentmagnify BCDF-GHJK-MNPQ
+```
+
+or anywhere: `bash scripts/pair.sh --code BCDF-GHJK-MNPQ`. The code is not the
+token — it lasts ten minutes, works once, and grants only what was configured
+when it was issued.
+
 Somewhere with no browser and nobody to approve — CI, a container, an image
 build? Nothing changed there: set `AGENTMAGNIFY_TOKEN`, or store a token from
 the panel's Tokens screen once.
@@ -138,7 +151,8 @@ SKILL.md                       the operating procedure the agent follows
 agents/project-observer.md     the independent Project Observer sub-agent
 scripts/
   lib.sh                       shared helpers: ids, timestamps, HTTP, secret filter
-  pair.sh                      get a token by approving a code in the panel
+  pair.sh                      get a token by approving a code in the panel,
+                               or claim one issued there (--code)
   login.sh                     store a token directly, for CI and containers
   fetch-schema.sh              protocol bundle download, cache and fallback
   start-session.sh             handshake and session creation
@@ -148,6 +162,8 @@ scripts/
   flush-pending-events.sh      drain the offline queue; --replay-dead-letters
                                also re-sends what a refused credential held back
   complete-session.sh          close the session
+  upload-artifact.sh           upload a screenshot or report and record it
+                               as an artifact
   self-test.sh                 offline verification of this package
 references/
   fallback-schema.json         offline copy of the protocol bundle
