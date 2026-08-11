@@ -50,6 +50,25 @@ It prints an eight-character code and waits. Open the panel, sign in, type the
 code, check that the screen names this machine and the workspace you meant, and
 approve. No token is displayed for anybody to copy, in either direction.
 
+The other direction exists too, and is the right one for a cloud or otherwise
+ephemeral agent session, where nobody is at the machine's browser: in the
+panel's Pair screen choose **Issue a pair code**, configure what the agent may
+do, and paste the twelve-character code it gives you into the session —
+
+```
+/agentmagnify BCDF-GHJK-MNPQ
+```
+
+in Claude Code, or `bash scripts/pair.sh --code BCDF-GHJK-MNPQ` anywhere else.
+The code is not the token: it is single-use, expires in ten minutes, and the
+token it redeems for is written straight to a `0600` file without ever being
+shown.
+
+Once paired, agents report as they work — tasks, tests, builds, blockers,
+decisions — and upload evidence with `upload-artifact.sh`: screenshots and
+reports land in the panel's storage, and a browser test's screenshots render
+as a numbered, pass/fail-badged step flow under its run.
+
 ## What is in here
 
 ```
