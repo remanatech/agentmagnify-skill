@@ -122,7 +122,7 @@ AT_LOCK_DIR="$AT_STATE_DIR/.lock"
 AT_FALLBACK_SCHEMA="$AT_REFERENCE_DIR/fallback-schema.json"
 
 AT_CLIENT_NAME="agentmagnify-skill"
-AT_CLIENT_VERSION="0.2.0"
+AT_CLIENT_VERSION="0.2.1"
 AT_FALLBACK_PROTOCOL_VERSION="2026-07-31.1"
 
 # ---------------------------------------------------------------------------
@@ -350,15 +350,40 @@ at_find_upwards() {
 
 # Project identity from the repository itself, so the common case needs no
 # config file at all: the git remote's repo name, else the directory name.
+#
+# Two working directories are refused instead of inferred, loudly, because
+# each has produced a phantom project in the panel: the skill's own install
+# directory (an agent that cd'd here to run a script would register a project
+# named "agentmagnify", then re-register the real one after cd'ing back), and
+# the home directory (a project named after the user's login is never what
+# anyone meant). Inference is a convenience; a wrong project is a lie in the
+# panel, so the convenience does not extend to directories that cannot be a
+# project.
 at_infer_project_name() {
-  local remote base
+  local remote base here skill_root
   remote="$(git config --get remote.origin.url 2>/dev/null || true)"
   if [ -n "$remote" ]; then
     base="${remote##*/}"
     base="${base%.git}"
     [ -n "$base" ] && printf '%s\n' "$base" && return 0
   fi
-  base="$(basename "$(pwd)")"
+
+  here="$(pwd)"
+  skill_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+
+  if [ -n "$skill_root" ] && { [ "$here" = "$skill_root" ] || case "$here" in "$skill_root"/*) true ;; *) false ;; esac; }; then
+    at_error "Refusing to infer a project from inside the skill's own directory ($skill_root)."
+    at_error "cd into the project you are reporting on and run the script again, or set AGENTMAGNIFY_PROJECT_NAME."
+    return 1
+  fi
+
+  if [ "$here" = "${HOME:-/nonexistent}" ]; then
+    at_error "Refusing to infer a project from the home directory."
+    at_error "cd into the project you are reporting on and run the script again, or set AGENTMAGNIFY_PROJECT_NAME."
+    return 1
+  fi
+
+  base="$(basename "$here")"
   printf '%s\n' "$base"
 }
 
@@ -411,8 +436,12 @@ at_load_config() {
   export AGENTMAGNIFY_TOKEN
 
   # 3) Project name: explicit env, then committed config, then the repository.
+  #    Inference can refuse (skill dir, home dir) — that refusal must stop the
+  #    script rather than register a phantom project under an empty name.
   [ -n "${AGENTMAGNIFY_PROJECT_NAME:-}" ] && AT_PROJECT_NAME="$AGENTMAGNIFY_PROJECT_NAME"
-  [ -z "$AT_PROJECT_NAME" ] && AT_PROJECT_NAME="$(at_infer_project_name)"
+  if [ -z "$AT_PROJECT_NAME" ]; then
+    AT_PROJECT_NAME="$(at_infer_project_name)" || return 1
+  fi
   export AGENTMAGNIFY_PROJECT_NAME="$AT_PROJECT_NAME"
 
   AT_API_URL="${AGENTMAGNIFY_API_URL:-$AT_DEFAULT_API_URL}"

@@ -69,11 +69,16 @@ names report as `custom` with the name as label), `AGENTMAGNIFY_CAPABILITIES`,
 
 ## 2. Startup sequence
 
-Once, at the beginning, before creating any sub-agent:
+Once, at the beginning, before creating any sub-agent. **Run from the
+project's own directory** — the project's identity is inferred from the
+working directory, and the scripts refuse to run from the skill's install
+directory or from `$HOME` for exactly that reason. Never `cd` into the skill
+to run them; call them by absolute path with the project as your cwd:
 
 ```bash
-scripts/login.sh --status     # 1. a credential resolves; never prints it
-scripts/start-session.sh      # 2. handshake + schema cache + session + panel URL
+# cwd = the project you are reporting on
+bash ~/.claude/skills/agentmagnify/scripts/login.sh --status     # 1. a credential resolves; never prints it
+bash ~/.claude/skills/agentmagnify/scripts/start-session.sh      # 2. handshake + schema cache + session + panel URL
 ```
 
 `start-session.sh` verifies the token (a rejected one degrades to offline, it
