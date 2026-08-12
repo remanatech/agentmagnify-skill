@@ -169,7 +169,7 @@ references/
   fallback-schema.json         offline copy of the protocol bundle
   event-types.md               every event type, who may emit it, required fields
   reporting-rules.md           the "when do I report" decision table
-state/                         local session state; git-ignored
+                               (local state lives outside the skill; see State)
 ```
 
 ## Requirements
@@ -209,7 +209,20 @@ Everything else is in this package.
 
 ## State
 
-Everything under `state/` is local, per-machine and git-ignored:
+State is local and lives **per project**, under
+`~/.agentmagnify/state/<project-folder>-<hash-of-its-path>/`.
+
+Per project rather than per machine, and that is a correctness requirement.
+When state was a single directory inside the skill's own install, two agents
+working on two projects at once shared one `session.json`: the second
+`start-session.sh` overwrote the first's project id, and the first agent's
+uploads and events were then filed under the second agent's project. Nothing
+errored, because every id involved was real.
+
+The key is the project's absolute root path — its git top level, else the
+directory holding `.agentmagnify.json`, else the working directory — so two
+checkouts of one repository stay apart and one project reached from a
+subdirectory stays together. `AGENTMAGNIFY_STATE_DIR` overrides it entirely.
 
 | File | Contents |
 | --- | --- |
@@ -237,7 +250,8 @@ need.
 | `AGENTMAGNIFY_EXECUTOR` | detected | `claude-code`, `codex`, `cursor`, `aider`, `custom`, or any other name. An unrecognised value reports as `custom` and becomes the label, so the panel still shows what ran. Undetectable reports as `custom` rather than guessing. |
 | `AGENTMAGNIFY_EXECUTOR_LABEL` | inferred | Free text shown beside the type; overrides the inferred one. |
 | `AGENTMAGNIFY_CAPABILITIES` | all | Space-separated capability list for the handshake. |
-| `AGENTMAGNIFY_STATE_DIR` | `state/` | Where local state lives. |
+| `AGENTMAGNIFY_STATE_DIR` | per project | Where local state lives. Overrides the per-project derivation entirely. |
+| `AGENTMAGNIFY_STATE_HOME` | `~/.agentmagnify/state` | Root the per-project directories are created under. |
 | `AGENTMAGNIFY_TIMEOUT_SECONDS` | `10` | Per-request timeout. |
 | `AGENTMAGNIFY_MAX_RETRIES` | `2` | Retries after the first attempt, with backoff. |
 | `AGENTMAGNIFY_QUEUE_MAX_AGE_HOURS` | `72` | Queued events older than this are dead-lettered, and held events older than this are retired instead of replayed. |

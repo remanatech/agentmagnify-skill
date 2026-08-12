@@ -744,6 +744,66 @@ cleanup_config_fixture
 trap at_cleanup_temp EXIT
 
 # ---------------------------------------------------------------------------
+section "per-project state isolation"
+# ---------------------------------------------------------------------------
+
+# The bug this section exists for: state used to live in the skill's install
+# directory, one copy per machine. Two agents on two projects shared a single
+# session.json, the second session overwrote the first's project id, and the
+# first agent's uploads were then filed under the second agent's project.
+
+ISO_HOME="$(mktemp -d "${TMPDIR:-/tmp}/at-selftest-isohome.XXXXXX")"
+ISO_A="$(mktemp -d "${TMPDIR:-/tmp}/at-selftest-projA.XXXXXX")"
+ISO_B="$(mktemp -d "${TMPDIR:-/tmp}/at-selftest-projB.XXXXXX")"
+mkdir -p "$ISO_A/packages/inner"
+( cd "$ISO_A" && git init -q 2>/dev/null || true )
+( cd "$ISO_B" && git init -q 2>/dev/null || true )
+
+# Resolves the state directory the way a script would, from a given cwd, with
+# the override deliberately removed so the derivation itself is under test.
+state_dir_in() {
+  ( cd "$1" && env -u AGENTMAGNIFY_STATE_DIR -u AGENTMAGNIFY_STATE_HOME \
+      HOME="$ISO_HOME" LIB="$SCRIPT_DIR/lib.sh" \
+      bash -c '. "$LIB" >/dev/null 2>&1; printf "%s" "$AT_STATE_DIR"' )
+}
+
+ISO_DIR_A="$(state_dir_in "$ISO_A")"
+ISO_DIR_B="$(state_dir_in "$ISO_B")"
+ISO_DIR_A_SUB="$(state_dir_in "$ISO_A/packages/inner")"
+
+check "two projects on one machine get two state directories" \
+  "$([ -n "$ISO_DIR_A" ] && [ "$ISO_DIR_A" != "$ISO_DIR_B" ]; printf '%s' $?)" \
+  "both resolved to '$ISO_DIR_A'"
+
+check "one project reached from a subdirectory keeps one state directory" \
+  "$([ "$ISO_DIR_A" = "$ISO_DIR_A_SUB" ]; printf '%s' $?)" \
+  "'$ISO_DIR_A' vs '$ISO_DIR_A_SUB'"
+
+check "state no longer lives in the skill's install directory" \
+  "$(printf '%s' "$ISO_DIR_A" | grep -qv "^$AT_SKILL_ROOT/state"; printf '%s' $?)" \
+  "resolved to '$ISO_DIR_A'"
+
+check "AGENTMAGNIFY_STATE_DIR still overrides the derivation" \
+  "$([ "$( cd "$ISO_A" && env AGENTMAGNIFY_STATE_DIR="$ISO_HOME/pinned" HOME="$ISO_HOME" \
+        LIB="$SCRIPT_DIR/lib.sh" bash -c '. "$LIB" >/dev/null 2>&1; printf "%s" "$AT_STATE_DIR"' )" \
+      = "$ISO_HOME/pinned" ]; printf '%s' $?)"
+
+# The symptom itself: a session opened for one project must be invisible to
+# the other, because that file is where uploads read their project id.
+mkdir -p "$ISO_DIR_A"
+printf '{"sessionId":"ses_a","projectId":"prj_AAA"}\n' > "$ISO_DIR_A/session.json"
+
+ISO_B_SEES="$( cd "$ISO_B" && env -u AGENTMAGNIFY_STATE_DIR -u AGENTMAGNIFY_STATE_HOME \
+  HOME="$ISO_HOME" LIB="$SCRIPT_DIR/lib.sh" \
+  bash -c '. "$LIB" >/dev/null 2>&1; cat "$AT_SESSION_FILE" 2>/dev/null || printf "none"' )"
+
+check "a session opened for one project is invisible to the other" \
+  "$(printf '%s' "$ISO_B_SEES" | grep -q 'prj_AAA' && printf 1 || printf 0)" \
+  "the other project read: $ISO_B_SEES"
+
+rm -rf "$ISO_HOME" "$ISO_A" "$ISO_B"
+
+# ---------------------------------------------------------------------------
 section "pairing"
 # ---------------------------------------------------------------------------
 #

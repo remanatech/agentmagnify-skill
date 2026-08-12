@@ -50,25 +50,10 @@ AT_DEFAULT_API_URL="https://api.agentmagnify.com"
 AT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AT_SKILL_ROOT="$(cd "$AT_LIB_DIR/.." && pwd)"
 AT_REFERENCE_DIR="$AT_SKILL_ROOT/references"
-AT_STATE_DIR="${AGENTMAGNIFY_STATE_DIR:-$AT_SKILL_ROOT/state}"
 
-AT_SESSION_FILE="$AT_STATE_DIR/session.json"
-AT_SCHEMA_FILE="$AT_STATE_DIR/schema.json"
-# shellcheck disable=SC2034  # read by fetch-schema.sh
-AT_SCHEMA_ETAG_FILE="$AT_STATE_DIR/schema.etag"
-# shellcheck disable=SC2034  # read by fetch-schema.sh
-AT_SCHEMA_FETCHED_FILE="$AT_STATE_DIR/schema.fetched-at"
-AT_PENDING_FILE="$AT_STATE_DIR/pending-events.jsonl"
-AT_DEAD_LETTER_FILE="$AT_STATE_DIR/dead-letter.jsonl"
-# When the dead-letter file was last replayed. Read by flush-pending-events.sh
-# to keep a loop of handshakes from replaying the same queue over and over.
-# shellcheck disable=SC2034
-AT_REPLAY_STAMP_FILE="$AT_STATE_DIR/dead-letter.replayed-at"
-AT_SEQUENCE_FILE="$AT_STATE_DIR/sequence"
-# The heartbeat daemon's pid, so start-session.sh does not start a second one
-# and complete-session.sh can stop the first.
-# shellcheck disable=SC2034  # read by heartbeat-daemon.sh and its callers
-AT_HEARTBEAT_PID_FILE="$AT_STATE_DIR/heartbeat.pid"
+# The state directory and everything under it is defined further down, after
+# `at_find_upwards` exists — it is derived per project, and the derivation
+# needs that helper. See "State directory: one per project".
 
 # Starts the heartbeat daemon, unless one is already running.
 #
@@ -87,7 +72,12 @@ at_start_heartbeat() {
     fi
   fi
 
-  nohup bash "$AT_LIB_DIR/heartbeat-daemon.sh" >/dev/null 2>&1 &
+  # Pinned to this project's state rather than left to re-derive it: the
+  # daemon outlives the shell that started it, and a detached process whose
+  # working directory moves or disappears must not start beating for whichever
+  # project it happens to resolve to next.
+  nohup env AGENTMAGNIFY_STATE_DIR="$AT_STATE_DIR" \
+    bash "$AT_LIB_DIR/heartbeat-daemon.sh" >/dev/null 2>&1 &
   local pid=$!
   disown "$pid" 2>/dev/null || true
   printf '%s\n' "$pid" > "$AT_HEARTBEAT_PID_FILE"
@@ -118,11 +108,10 @@ at_stop_heartbeat() {
 
   at_debug "heartbeat daemon stopped"
 }
-AT_LOCK_DIR="$AT_STATE_DIR/.lock"
 AT_FALLBACK_SCHEMA="$AT_REFERENCE_DIR/fallback-schema.json"
 
 AT_CLIENT_NAME="agentmagnify-skill"
-AT_CLIENT_VERSION="0.2.1"
+AT_CLIENT_VERSION="0.2.2"
 AT_FALLBACK_PROTOCOL_VERSION="2026-07-31.1"
 
 # ---------------------------------------------------------------------------
@@ -387,6 +376,90 @@ at_infer_project_name() {
   printf '%s\n' "$base"
 }
 
+# ---------------------------------------------------------------------------
+# State directory: one per project
+# ---------------------------------------------------------------------------
+#
+# This used to be one directory per *machine* (`$AT_SKILL_ROOT/state`), and
+# that was a correctness bug, not untidiness. Two agents working on two
+# projects at the same time shared a single `session.json`: the second
+# `start-session.sh` overwrote the first's project id, and from that moment the
+# first agent's uploads and events were filed under the second agent's
+# project. Nothing errored, because every id involved was real — screenshots
+# simply appeared in the wrong project. The shared sequence counter, offline
+# queue and heartbeat pid had the same shape of problem.
+#
+# The key is the project's absolute root path, not its name: two checkouts of
+# one repository are two projects, and one project reached from a subdirectory
+# is still one project. AGENTMAGNIFY_STATE_DIR still overrides everything,
+# which is what the test suite and CI pin.
+
+at_project_root() {
+  local root config
+  root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -z "$root" ] && config="$(at_find_upwards "$AT_PROJECT_CONFIG_NAME")"; then
+    root="$(dirname "$config")"
+  fi
+  [ -n "$root" ] || root="$(pwd)"
+  printf '%s\n' "$root"
+}
+
+# A directory name a person can recognise plus a digest that cannot collide:
+# the project's folder name, then a hash of its full path. Every hash tool
+# here is optional except `cksum`, which POSIX guarantees.
+at_state_key() {
+  local path="$1" label digest=""
+  label="$(printf '%s' "$(basename "$path")" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-40)"
+  if command -v shasum >/dev/null 2>&1; then
+    digest="$(printf '%s' "$path" | shasum -a 256 2>/dev/null | cut -c1-10)"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    digest="$(printf '%s' "$path" | sha256sum | cut -c1-10)"
+  elif command -v md5sum >/dev/null 2>&1; then
+    digest="$(printf '%s' "$path" | md5sum | cut -c1-10)"
+  elif command -v md5 >/dev/null 2>&1; then
+    digest="$(printf '%s' "$path" | md5 | cut -c1-10)"
+  fi
+  [ -n "$digest" ] || digest="$(printf '%s' "$path" | cksum | tr -cd '0-9' | cut -c1-10)"
+  printf '%s-%s\n' "${label:-project}" "$digest"
+}
+
+AT_STATE_HOME="${AGENTMAGNIFY_STATE_HOME:-$HOME/.agentmagnify/state}"
+# Read only to warn about, never read as state: it cannot be attributed to any
+# project, which is precisely what was wrong with it.
+AT_LEGACY_STATE_DIR="$AT_SKILL_ROOT/state"
+AT_STATE_DIR="${AGENTMAGNIFY_STATE_DIR:-$AT_STATE_HOME/$(at_state_key "$(at_project_root)")}"
+
+AT_SESSION_FILE="$AT_STATE_DIR/session.json"
+AT_SCHEMA_FILE="$AT_STATE_DIR/schema.json"
+# shellcheck disable=SC2034  # read by fetch-schema.sh
+AT_SCHEMA_ETAG_FILE="$AT_STATE_DIR/schema.etag"
+# shellcheck disable=SC2034  # read by fetch-schema.sh
+AT_SCHEMA_FETCHED_FILE="$AT_STATE_DIR/schema.fetched-at"
+AT_PENDING_FILE="$AT_STATE_DIR/pending-events.jsonl"
+AT_DEAD_LETTER_FILE="$AT_STATE_DIR/dead-letter.jsonl"
+# When the dead-letter file was last replayed. Read by flush-pending-events.sh
+# to keep a loop of handshakes from replaying the same queue over and over.
+# shellcheck disable=SC2034
+AT_REPLAY_STAMP_FILE="$AT_STATE_DIR/dead-letter.replayed-at"
+AT_SEQUENCE_FILE="$AT_STATE_DIR/sequence"
+# The heartbeat daemon's pid, so start-session.sh does not start a second one
+# and complete-session.sh can stop the first.
+# shellcheck disable=SC2034  # read by heartbeat-daemon.sh and its callers
+AT_HEARTBEAT_PID_FILE="$AT_STATE_DIR/heartbeat.pid"
+# Per project too: two projects writing events at once must not queue behind
+# each other's lock.
+AT_LOCK_DIR="$AT_STATE_DIR/.lock"
+
+# Events queued by the machine-wide layout have no project to belong to, so
+# they are neither replayed nor deleted here: doing either would guess. Said
+# once, only when there is something to say.
+at_warn_orphaned_state() {
+  [ "$AT_STATE_DIR" = "$AT_LEGACY_STATE_DIR" ] && return 0
+  [ -s "$AT_LEGACY_STATE_DIR/pending-events.jsonl" ] || return 0
+  at_warn "$AT_LEGACY_STATE_DIR/pending-events.jsonl holds events queued by an older version that kept one state directory per machine."
+  at_warn "They are not replayed automatically because that layout cannot say which project they belong to. Inspect the file and delete it once you are satisfied."
+}
+
 at_load_config() {
   local project_config project_secret token_from_file legacy_project_config
 
@@ -449,6 +522,7 @@ at_load_config() {
   AT_TIMEOUT="${AGENTMAGNIFY_TIMEOUT_SECONDS:-10}"
   AT_MAX_RETRIES="${AGENTMAGNIFY_MAX_RETRIES:-2}"
   at_ensure_state_dir
+  at_warn_orphaned_state
   return 0
 }
 
