@@ -42,6 +42,10 @@ AT_LIB_SOURCED=1
 # development passes --api-url http://localhost:4000, which is what the
 # repository's own instructions have always done.
 AT_DEFAULT_API_URL="https://api.agentmagnify.com"
+# Where a person goes to fix something a script cannot. Derived rather than
+# configured: an install that moved its API to another host moved its panel
+# with it, and a second variable to set is a second variable to get wrong.
+AT_DEFAULT_PANEL_URL="https://app.agentmagnify.com"
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -111,7 +115,7 @@ at_stop_heartbeat() {
 AT_FALLBACK_SCHEMA="$AT_REFERENCE_DIR/fallback-schema.json"
 
 AT_CLIENT_NAME="agentmagnify-skill"
-AT_CLIENT_VERSION="0.2.2"
+AT_CLIENT_VERSION="0.3.0"
 AT_FALLBACK_PROTOCOL_VERSION="2026-07-31.1"
 
 # ---------------------------------------------------------------------------
@@ -320,6 +324,15 @@ AT_PROJECT_NAME=""
 AT_PROJECT_SLUG=""
 AT_CONFIG_SOURCE=""
 
+# What the environment said before any file was read.
+#
+# Captured at load time because `at_load_config` writes the same variables from
+# whatever credential it finds, and "somebody exported a token for this run" and
+# "a token was found on disk" are the same string afterwards. The distinction
+# matters exactly once: deciding whether a directory was connected on purpose.
+AT_ENV_TOKEN="${AGENTMAGNIFY_TOKEN:-}"
+AT_ENV_PROJECT_NAME="${AGENTMAGNIFY_PROJECT_NAME:-}"
+
 # Walks up from the working directory looking for a file, stopping at the
 # filesystem root. A monorepo package should still find the config at the repo
 # root rather than needing one per package.
@@ -401,14 +414,67 @@ at_project_root() {
     root="$(dirname "$config")"
   fi
   [ -n "$root" ] || root="$(pwd)"
+  # With the symlinks followed, because the CLI resolves them too. macOS
+  # reaches /private/var through /var and plenty of people keep checkouts under
+  # a symlinked home; one directory with two absolute paths is one directory
+  # with two keys, and then a project connected by `npx agentmagnify connect`
+  # reads as unconnected here.
+  root="$(cd "$root" 2>/dev/null && pwd -P)" || root="$(pwd -P)"
   printf '%s\n' "$root"
+}
+
+# True on a machine where one directory has two spellings.
+at_is_windows() {
+  case "${OSTYPE:-$(uname -s 2>/dev/null || printf '')}" in
+    msys*|MSYS*|cygwin*|CYGWIN*|MINGW*|win32) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The comparable form of a path, and the reason the CLI and these scripts can
+# name the same project.
+#
+# Git Bash says /c/Users/x/project, `git rev-parse` says C:/Users/x/project and
+# node says C:\Users\x\project -- three spellings of one directory, and three
+# different digests if any of them is hashed as it arrives. So every spelling is
+# folded into one before it is keyed: backslashes to slashes, an MSYS /c/ prefix
+# to c:/, and on Windows the whole path lowercased because the filesystem does
+# not distinguish either. On anything else this is the identity function for
+# every path that has ever been keyed, so no existing state directory moves.
+at_normalise_root() {
+  local value="$1"
+  value="$(printf '%s' "$value" | tr '\\' '/')"
+  case "$value" in
+    /[A-Za-z]/*)
+      local drive rest
+      drive="$(printf '%s' "$value" | cut -c2)"
+      rest="$(printf '%s' "$value" | cut -c3-)"
+      value="$(printf '%s' "$drive" | tr 'A-Z' 'a-z'):$rest"
+      ;;
+  esac
+  case "$value" in
+    [A-Za-z]:*)
+      local drive rest
+      drive="$(printf '%s' "$value" | cut -c1 | tr 'A-Z' 'a-z')"
+      rest="$(printf '%s' "$value" | cut -c2-)"
+      value="$drive$rest"
+      ;;
+  esac
+  case "$value" in
+    */) [ "${#value}" -gt 1 ] && value="${value%/}" ;;
+  esac
+  if at_is_windows; then
+    value="$(printf '%s' "$value" | tr 'A-Z' 'a-z')"
+  fi
+  printf '%s' "$value"
 }
 
 # A directory name a person can recognise plus a digest that cannot collide:
 # the project's folder name, then a hash of its full path. Every hash tool
 # here is optional except `cksum`, which POSIX guarantees.
 at_state_key() {
-  local path="$1" label digest=""
+  local path label digest=""
+  path="$(at_normalise_root "$1")"
   label="$(printf '%s' "$(basename "$path")" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-40)"
   if command -v shasum >/dev/null 2>&1; then
     digest="$(printf '%s' "$path" | shasum -a 256 2>/dev/null | cut -c1-10)"
@@ -428,6 +494,168 @@ AT_STATE_HOME="${AGENTMAGNIFY_STATE_HOME:-$HOME/.agentmagnify/state}"
 # project, which is precisely what was wrong with it.
 AT_LEGACY_STATE_DIR="$AT_SKILL_ROOT/state"
 AT_STATE_DIR="${AGENTMAGNIFY_STATE_DIR:-$AT_STATE_HOME/$(at_state_key "$(at_project_root)")}"
+
+# True when the first version is older than the second.
+#
+# Dotted numbers only, compared field by field, and a field that is not a plain
+# number counts as zero -- which is right for the one thing this is used for: a
+# prerelease is not newer than the release it precedes, and being wrong about
+# "0.3.0-rc1" costs at most one unprinted upgrade notice.
+at_version_lt() {
+  local left="$1" right="$2" index=1 a b
+  while [ "$index" -le 4 ]; do
+    a="$(printf '%s' "$left" | cut -d. -f"$index" | tr -cd '0-9')"
+    b="$(printf '%s' "$right" | cut -d. -f"$index" | tr -cd '0-9')"
+    [ -n "$a" ] || a=0
+    [ -n "$b" ] || b=0
+    [ "$a" -lt "$b" ] && return 0
+    [ "$a" -gt "$b" ] && return 1
+    index=$(( index + 1 ))
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Project identity, kept on the machine rather than in the repository
+# ---------------------------------------------------------------------------
+#
+# A project used to be identified by a name the scripts guessed -- git remote,
+# else folder -- and the only way to pin it was a file committed to the
+# repository. Renaming the folder therefore opened a second project in the
+# panel and split one history in two, and the only cure was a file plenty of
+# people do not want in their repository at all.
+#
+# So identity also lives here, one directory per project, beside the state that
+# is already keyed the same way:
+#
+#   ~/.agentmagnify/projects/<folder>-<hash of its path>/project.json
+#
+# One directory per project and never one index for all of them: several
+# projects on one machine means several writers, and two agents that start at
+# the same moment must not be able to interleave into one document. `npx
+# agentmagnify project set` writes the same file; the key arithmetic is shared
+# with it deliberately, and the installer's test suite asserts the two agree.
+#
+# The record holds the projectId the server resolved last time, which is what
+# start-session.sh presents on the next handshake. That is the whole fix for
+# the rename: the panel keeps one project under a new name instead of growing
+# a second one.
+AT_PROJECTS_HOME="${AGENTMAGNIFY_PROJECTS_HOME:-$HOME/.agentmagnify/projects}"
+AT_PROJECT_DIR="${AGENTMAGNIFY_PROJECT_DIR:-$AT_PROJECTS_HOME/$(at_state_key "$(at_project_root)")}"
+AT_PROJECT_RECORD_FILE="$AT_PROJECT_DIR/project.json"
+# The project-scoped credential for somebody who wants one without a second
+# file inside their checkout. Same scope as .agentmagnify.local.json, kept
+# where the rest of this project's machine-side facts are.
+AT_PROJECT_CREDENTIALS_FILE="$AT_PROJECT_DIR/credentials.json"
+# shellcheck disable=SC2034  # read by start-session.sh
+AT_PROJECT_ID=""
+
+# A repository's identity, independent of how it was cloned. Folds
+# git@host:owner/repo.git, https://host/owner/repo and every variant of them
+# onto host/owner/repo, which is what lets a renamed checkout find the project
+# it was already reporting into: the path changed, the remote did not.
+at_normalise_remote() {
+  local value="$1"
+  [ -n "$value" ] || return 0
+  value="${value%.git}"
+  value="${value%/}"
+  value="$(printf '%s' "$value" | sed -e 's|^[A-Za-z][A-Za-z0-9+.-]*://||' -e 's|^[^@/]*@||' -e 's|:|/|')"
+  printf '%s' "$value" | tr 'A-Z' 'a-z'
+}
+
+AT_REMOTE_POINTER_DIR="$AT_PROJECTS_HOME/by-remote"
+
+# The record for this checkout's repository, whatever directory it sits in.
+#
+# Read by scanning rather than by hashing the remote: `npx agentmagnify` names
+# these files by a sha256 it always has, and this half of the product may be on
+# a machine whose only hash tool is cksum. There is one of these per repository
+# a person works on, so the scan is a handful of small reads.
+at_find_record_by_remote() {
+  local remote pointer candidate key
+  remote="$(at_normalise_remote "$(git config --get remote.origin.url 2>/dev/null || true)")"
+  [ -n "$remote" ] || return 1
+  [ -d "$AT_REMOTE_POINTER_DIR" ] || return 1
+
+  for pointer in "$AT_REMOTE_POINTER_DIR"/*.json; do
+    [ -f "$pointer" ] || continue
+    [ "$(at_json_get "$pointer" 'remote')" = "$remote" ] || continue
+    key="$(at_json_get "$pointer" 'key')"
+    [ -n "$key" ] || continue
+    candidate="$AT_PROJECTS_HOME/$key/project.json"
+    [ -f "$candidate" ] || continue
+    printf '%s' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+# Whether this directory has been connected on purpose.
+#
+# Reporting used to begin wherever an agent happened to start: a machine-wide
+# key plus a name inferred from the folder was enough, so opening an editor in
+# any directory could create a project in somebody's panel. That is the wrong
+# default in both directions -- it fills a workspace with projects nobody asked
+# for, and it spends a plan's project ceiling on directories that were never
+# meant to be watched.
+#
+# Connecting is therefore an act, and this is the record of it. Four things
+# count, and each of them is somebody saying yes:
+#
+#   - a record for this directory, written by `npx agentmagnify connect` or by
+#     an earlier session that was itself connected,
+#   - a committed .agentmagnify.json, which is a team saying yes in the
+#     repository,
+#   - AGENTMAGNIFY_PROJECT_NAME, which is a person naming the project outright,
+#   - AGENTMAGNIFY_TOKEN in the environment, which is CI, where the whole
+#     container exists to run this one job.
+at_project_is_connected() {
+  [ -n "$AT_ENV_TOKEN" ] && return 0
+  [ -n "$AT_ENV_PROJECT_NAME" ] && return 0
+  [ -f "$AT_PROJECT_RECORD_FILE" ] && return 0
+  at_find_upwards "$AT_PROJECT_CONFIG_NAME" >/dev/null 2>&1 && return 0
+  at_find_record_by_remote >/dev/null 2>&1 && return 0
+  return 1
+}
+
+# Writes what the last handshake resolved. Atomic, because an agent may be
+# starting in this directory at the same moment.
+at_record_project_identity() {
+  local project_id="$1" project_name="$2" project_slug="${3:-}" tmp root
+  [ -n "$project_id" ] || return 0
+  root="$(at_normalise_root "$(at_project_root)")"
+
+  mkdir -p "$AT_PROJECT_DIR" 2>/dev/null || return 0
+  tmp="$AT_PROJECT_RECORD_FILE.$$"
+  {
+    printf '{\n'
+    printf '  "root": %s,\n' "$(at_json_quote "$root")"
+    printf '  "name": %s,\n' "$(at_json_quote "$project_name")"
+    [ -n "$project_slug" ] && printf '  "slug": %s,\n' "$(at_json_quote "$project_slug")"
+    printf '  "projectId": %s,\n' "$(at_json_quote "$project_id")"
+    printf '  "updatedAt": %s\n' "$(at_json_quote "$(at_now)")"
+    printf '}\n'
+  } > "$tmp" 2>/dev/null || return 0
+  mv -f "$tmp" "$AT_PROJECT_RECORD_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+
+  # And the pointer that survives a rename.
+  local remote pointer
+  remote="$(at_normalise_remote "$(git config --get remote.origin.url 2>/dev/null || true)")"
+  if [ -n "$remote" ]; then
+    mkdir -p "$AT_REMOTE_POINTER_DIR" 2>/dev/null || return 0
+    pointer="$AT_REMOTE_POINTER_DIR/$(printf '%s' "$remote" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-60).json"
+    tmp="$pointer.$$"
+    {
+      printf '{\n'
+      printf '  "remote": %s,\n' "$(at_json_quote "$remote")"
+      printf '  "key": %s,\n' "$(at_json_quote "$(at_state_key "$(at_project_root)")")"
+      printf '  "root": %s\n' "$(at_json_quote "$root")"
+      printf '}\n'
+    } > "$tmp" 2>/dev/null || return 0
+    mv -f "$tmp" "$pointer" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  fi
+  return 0
+}
 
 AT_SESSION_FILE="$AT_STATE_DIR/session.json"
 AT_SCHEMA_FILE="$AT_STATE_DIR/schema.json"
@@ -474,7 +702,28 @@ at_load_config() {
     [ -z "${AGENTMAGNIFY_API_URL:-}" ] && AGENTMAGNIFY_API_URL="$(at_json_get "$project_config" 'apiUrl')"
     AT_PROJECT_NAME="$(at_json_get "$project_config" 'projectName')"
     AT_PROJECT_SLUG="$(at_json_get "$project_config" 'projectSlug')"
-  elif legacy_project_config="$(at_find_upwards "$AT_LEGACY_PROJECT_CONFIG_NAME")"; then
+  fi
+
+  # The machine's own record for this directory: the name if nothing above
+  # pinned one, and the project id whatever pinned the name -- the id belongs
+  # to the directory, not to whoever named it.
+  #
+  # Failing that, the record kept for this checkout's repository, which is the
+  # one that survives somebody renaming the folder.
+  local record_file=""
+  if [ -f "$AT_PROJECT_RECORD_FILE" ]; then
+    record_file="$AT_PROJECT_RECORD_FILE"
+  else
+    record_file="$(at_find_record_by_remote || true)"
+  fi
+
+  if [ -n "$record_file" ] && [ -f "$record_file" ]; then
+    [ -z "$AT_PROJECT_NAME" ] && AT_PROJECT_NAME="$(at_json_get "$record_file" 'name')"
+    [ -z "$AT_PROJECT_SLUG" ] && AT_PROJECT_SLUG="$(at_json_get "$record_file" 'slug')"
+    AT_PROJECT_ID="$(at_json_get "$record_file" 'projectId')"
+  fi
+
+  if [ -z "$AT_PROJECT_NAME" ] && legacy_project_config="$(at_find_upwards "$AT_LEGACY_PROJECT_CONFIG_NAME")"; then
     # Losing this file silently is the worst of the rename's failure modes: the
     # project name falls back to the repository name, events keep flowing, and
     # they land under a project nobody was watching.
@@ -482,8 +731,9 @@ at_load_config() {
     at_warn "Until it is renamed, this project reports under its inferred name rather than the pinned one."
   fi
 
-  # 2) Credential resolution, first hit wins: environment, project-local
-  #    secret, then the user-level login.
+  # 2) Credential resolution, first hit wins: environment, the project-scoped
+  #    key -- in the repository if somebody put one there, otherwise this
+  #    machine's -- then the machine-wide login.
   if [ -n "${AGENTMAGNIFY_TOKEN:-}" ]; then
     AT_CONFIG_SOURCE="environment"
   else
@@ -493,6 +743,15 @@ at_load_config() {
         AGENTMAGNIFY_TOKEN="$token_from_file"
         AT_CONFIG_SOURCE="$project_secret"
         [ -z "${AGENTMAGNIFY_API_URL:-}" ] && AGENTMAGNIFY_API_URL="$(at_json_get "$project_secret" 'apiUrl')"
+      fi
+    fi
+
+    if [ -z "${AGENTMAGNIFY_TOKEN:-}" ] && [ -f "$AT_PROJECT_CREDENTIALS_FILE" ]; then
+      token_from_file="$(at_json_get "$AT_PROJECT_CREDENTIALS_FILE" 'token')"
+      if [ -n "$token_from_file" ]; then
+        AGENTMAGNIFY_TOKEN="$token_from_file"
+        AT_CONFIG_SOURCE="$AT_PROJECT_CREDENTIALS_FILE"
+        [ -z "${AGENTMAGNIFY_API_URL:-}" ] && AGENTMAGNIFY_API_URL="$(at_json_get "$AT_PROJECT_CREDENTIALS_FILE" 'apiUrl')"
       fi
     fi
 
@@ -565,7 +824,7 @@ at_require_token() {
     at_legacy_setup_hints || true
     at_error "Run: bash scripts/pair.sh              (approve it in the panel; nothing to copy)"
     at_error "  or: bash scripts/login.sh <token>    (for CI, where nobody is at a browser)"
-    at_error "Looked at: AGENTMAGNIFY_TOKEN, ./$AT_PROJECT_SECRET_NAME, $AT_CREDENTIALS_FILE"
+    at_error "Looked at: AGENTMAGNIFY_TOKEN, ./$AT_PROJECT_SECRET_NAME, $AT_PROJECT_CREDENTIALS_FILE, $AT_CREDENTIALS_FILE"
     return 1
   fi
   return 0
@@ -1274,6 +1533,11 @@ at_status_is_permanent_failure() {
     4??) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# The machine-readable half of a refusal, for a caller that has to branch on it.
+at_error_code() {
+  at_json_get "$1" 'error.code'
 }
 
 at_error_message() {

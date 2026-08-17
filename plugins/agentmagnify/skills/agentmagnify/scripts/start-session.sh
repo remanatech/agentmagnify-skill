@@ -70,6 +70,16 @@ report_offline() {
   printf 'offline\n'
 }
 
+# Nothing happens in a directory nobody connected. Not an error, not a queue,
+# not a project created in somebody's panel because an agent was started in a
+# folder: one line saying how to connect, and the session ends.
+if ! at_project_is_connected; then
+  at_info "this project is not connected to AgentMagnify, so nothing will be reported."
+  at_info "connect it with: npx agentmagnify connect"
+  printf 'not-connected\n'
+  exit 4
+fi
+
 if ! at_have_token; then
   at_error "AGENTMAGNIFY_TOKEN is not set"
   at_error "export a project token (prj_live_...) or a workspace ingestion token (wsi_live_...) and run this script again"
@@ -115,6 +125,12 @@ done
 if [ "$(at_token_kind)" = "workspace_ingestion" ] && [ -n "$PROJECT_NAME" ]; then
   at_json_set "$REQUEST_FILE" str project.name "$PROJECT_NAME"
   [ -n "${AT_PROJECT_SLUG:-}" ] && at_json_set "$REQUEST_FILE" str project.slug "$AT_PROJECT_SLUG"
+  # What this directory resolved to last time. The server prefers it over the
+  # name, so renaming the folder -- or gaining a git remote, which changes the
+  # inferred name outright -- keeps reporting into the same project instead of
+  # opening a second one beside it. An id the workspace no longer has is
+  # ignored there and the name resolves as before.
+  [ -n "${AT_PROJECT_ID:-}" ] && at_json_set "$REQUEST_FILE" str project.id "$AT_PROJECT_ID"
 fi
 
 if [ -n "$RESUME_SESSION_ID" ]; then
@@ -128,11 +144,55 @@ STATUS="$(at_http_request POST /v1/agent/sessions "$REQUEST_FILE" "$RESPONSE_FIL
 
 if ! at_status_is_success "$STATUS"; then
   if at_status_is_permanent_failure "$STATUS"; then
-    at_error "the API refused the session: HTTP $STATUS $(at_error_message "$RESPONSE_FILE")"
-    case "$STATUS" in
-      401|403) at_error "check AGENTMAGNIFY_TOKEN: it may be revoked, expired, or scoped to another project" ;;
+    #
+    # A refusal is not an outage, and treating it as one is how somebody ends
+    # up with a queue that will never drain and no idea why nothing appears in
+    # the panel. This is the exact report we had from the field: a project that
+    # could not be created because the plan had no room for it, reported as
+    # "continuing in offline mode" — which reads as a network hiccup, so the
+    # agent worked for an hour and filed everything into a queue for a project
+    # that does not exist.
+    #
+    # So a 4xx says what the server said, in the server's own words, names the
+    # one thing that fixes it, and stops. Nothing is queued: there is nothing
+    # for the queue to be delivered to.
+    #
+    CODE="$(at_error_code "$RESPONSE_FILE")"
+    MESSAGE="$(at_error_message "$RESPONSE_FILE")"
+
+    at_error ""
+    at_error "AgentMagnify is not reporting for this project."
+    [ -n "$MESSAGE" ] && at_error "  $MESSAGE"
+
+    case "${CODE:-}$STATUS" in
+      PLAN_LIMIT_REACHED*|*402)
+        at_error ""
+        at_error "  This is a plan ceiling, not a fault. Either:"
+        at_error "    - archive a project you no longer watch, in the panel, or"
+        at_error "    - move to a plan with room: ${AGENTMAGNIFY_PANEL_URL:-$AT_DEFAULT_PANEL_URL}/settings/plans"
+        ;;
+      *401|*403)
+        at_error ""
+        at_error "  The key was refused. Pair this machine again:"
+        at_error "    npx agentmagnify pair"
+        ;;
+      CLIENT_VERSION_TOO_OLD*)
+        at_error ""
+        at_error "  This client is older than the server accepts. Update it:"
+        at_error "    npx agentmagnify@latest install"
+        ;;
+      *)
+        at_error ""
+        at_error "  Nothing was queued, because a refusal is not an outage."
+        ;;
     esac
+    at_error ""
+    at_error "Development continues; only the reporting stopped."
+
+    printf 'refused\n'
+    exit 3
   fi
+
   report_offline "HTTP $STATUS"
   exit 0
 fi
@@ -177,6 +237,18 @@ PROJECT_LABEL="$(at_json_get "$AT_SESSION_FILE" 'projectName')"
 PANEL_URL="$(at_json_get "$AT_SESSION_FILE" 'panelUrl')"
 REPORTING_MODE="$(at_json_get "$AT_SESSION_FILE" 'reportingMode')"
 PROTOCOL_STATUS="$(at_json_get "$AT_SESSION_FILE" 'protocolStatus')"
+
+# Remember what this directory is, for every session after this one.
+at_record_project_identity "$PROJECT_ID" "${PROJECT_LABEL:-$PROJECT_NAME}" "${AT_PROJECT_SLUG:-}"
+
+# One line, once per session, when the server is running a newer client than
+# this one. Not a check against npm: the server already knows, this request was
+# going to happen anyway, and a tool that phones a third party from a
+# developer's machine to ask about itself is a tool with something to explain.
+LATEST_CLIENT="$(at_json_get "$AT_SESSION_FILE" 'protocol.latestClientVersion')"
+if [ -n "$LATEST_CLIENT" ] && [ "$LATEST_CLIENT" != "$AT_CLIENT_VERSION" ] && at_version_lt "$AT_CLIENT_VERSION" "$LATEST_CLIENT"; then
+  at_info "AgentMagnify $AT_CLIENT_VERSION is installed; $LATEST_CLIENT is available -- npx agentmagnify@latest install"
+fi
 
 if [ "$QUIET" = "0" ]; then
   at_info "session $SESSION_ID opened for project ${PROJECT_LABEL:-$PROJECT_ID}"

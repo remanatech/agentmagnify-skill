@@ -36,7 +36,7 @@ Claude Code users can have native versioning and `/plugin update` instead:
 Same files either way. Then pair the machine:
 
 ```bash
-bash ~/.claude/skills/agentmagnify/scripts/pair.sh --api-url https://api.your-monitor.example
+npx agentmagnify pair
 ```
 
 It prints an eight-character code and waits. Open the panel, sign in, type the
@@ -47,9 +47,23 @@ No token is ever shown for you to copy — not in the panel, not in this
 terminal. A credential pasted between the two ends up in shell history, in
 scrollback and in screenshots, and this path has no step where that can happen.
 
-That is the whole setup, once per machine. The token is written to
-`~/.agentmagnify/credentials.json` with mode 0600 — not into your repository,
-not into a shell profile — and every project on the machine reuses it.
+The key is written to `~/.agentmagnify/credentials.json` with mode 0600 — not
+into your repository, not into a shell profile — and every project on the
+machine reuses it.
+
+Then say which projects to watch, one command each, from their directories:
+
+```bash
+npx agentmagnify connect
+```
+
+Reporting happens in connected projects and in no others. An agent started in a
+directory nobody connected says one line about it and works normally: no
+project is created, nothing is queued, and no slot on your plan is spent. This
+writes nothing to your repository either — the record lives beside the
+credential, under `~/.agentmagnify/projects/`, and carries the project id the
+panel gave it so renaming the directory later keeps one project rather than
+starting a second.
 
 The other direction works too, and is the right one for a cloud agent session
 — no terminal anybody watches, no filesystem that outlives the session. On the
@@ -60,21 +74,24 @@ do, and paste the twelve-character code it gives you into the session:
 /agentmagnify BCDF-GHJK-MNPQ
 ```
 
-or anywhere: `bash scripts/pair.sh --code BCDF-GHJK-MNPQ`. The code is not the
-token — it lasts ten minutes, works once, and grants only what was configured
+or anywhere: `npx agentmagnify pair --code BCDF-GHJK-MNPQ`. The code is not the
+key — it lasts ten minutes, works once, and grants only what was configured
 when it was issued.
 
 Somewhere with no browser and nobody to approve — CI, a container, an image
-build? Nothing changed there: set `AGENTMAGNIFY_TOKEN`, or store a token from
-the panel's Tokens screen once.
+build? Set `AGENTMAGNIFY_TOKEN`, which is itself the act of connecting: a
+container that carries a key exists to run this one job. Or store a key from
+the panel's Agent keys screen once:
 
 ```bash
-bash scripts/login.sh wsi_live_xxxxxxxx --api-url https://api.your-monitor.example
+npx agentmagnify login wsi_live_xxxxxxxx
 ```
 
-A project is identified by its git remote name, falling back to the directory
-name, so a fresh repository needs no configuration at all. To pin the name the
-panel shows, commit a secret-free `.agentmagnify.json`:
+A connected project reports under the name `connect` recorded, which starts as
+the git remote's repository name and falls back to the directory name. Change
+it at any time with `npx agentmagnify project set "A Name"`. To pin one name
+for everybody on the team instead, commit a secret-free `.agentmagnify.json` —
+optional, and it never holds a key:
 
 ```json
 { "projectName": "N8N Clone", "projectSlug": "n8n-clone" }

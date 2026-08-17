@@ -44,16 +44,28 @@ says where the work happened.
 
 ### Configuration
 
-Setup is one command per machine: `bash scripts/pair.sh` (a person approves in
-the panel; no secret is ever displayed). Headless environments use
-`bash scripts/login.sh wsi_live_…` or `AGENTMAGNIFY_TOKEN`.
+Setup is two commands and neither of them is a path into this directory:
+
+```bash
+npx agentmagnify pair        # once per machine; a person approves in the panel
+npx agentmagnify connect     # once per project you want tracked
+```
+
+Nothing is ever displayed for copying. Headless environments (CI, containers)
+set `AGENTMAGNIFY_TOKEN` instead, which is itself the act of connecting.
 
 Credential resolution, first hit wins: `AGENTMAGNIFY_TOKEN` env →
 `.agentmagnify.local.json` (git-ignored, project-scoped) →
-`~/.agentmagnify/credentials.json` (0600). Project identity, first hit wins:
-`AGENTMAGNIFY_PROJECT_NAME` → committed `.agentmagnify.json` (never holds a
-token; scripts refuse if one appears) → git remote name → directory name. With
-a workspace ingestion token a fresh repository needs no setup at all.
+`~/.agentmagnify/projects/<key>/credentials.json` (project-scoped, machine
+side) → `~/.agentmagnify/credentials.json` (0600).
+
+Project identity, first hit wins: `AGENTMAGNIFY_PROJECT_NAME` → committed
+`.agentmagnify.json` (optional, never holds a token; scripts refuse if one
+appears) → `~/.agentmagnify/projects/<key>/project.json`, written by
+`agentmagnify connect` and kept up to date by every session → git remote name →
+directory name. The machine-side record also carries the **project id** the
+server resolved, which is what keeps a renamed directory reporting into the
+project it already had instead of opening a second one.
 
 | Variable | Meaning |
 | --- | --- |
@@ -70,22 +82,38 @@ names report as `custom` with the name as label), `AGENTMAGNIFY_CAPABILITIES`,
 ## 2. Startup sequence
 
 Once, at the beginning, before creating any sub-agent. **Run from the
-project's own directory** — the project's identity is inferred from the
-working directory, and the scripts refuse to run from the skill's install
-directory or from `$HOME` for exactly that reason. Never `cd` into the skill
-to run them; call them by absolute path with the project as your cwd:
+project's own directory** — the project's identity comes from the working
+directory, and the scripts refuse to run from the skill's install directory or
+from `$HOME` for exactly that reason. Never `cd` into the skill to run them;
+call them by absolute path with the project as your cwd:
 
 ```bash
 # cwd = the project you are reporting on
-bash ~/.claude/skills/agentmagnify/scripts/login.sh --status     # 1. a credential resolves; never prints it
-bash ~/.claude/skills/agentmagnify/scripts/start-session.sh      # 2. handshake + schema cache + session + panel URL
+bash ~/.claude/skills/agentmagnify/scripts/start-session.sh      # handshake + schema cache + session + panel URL
 ```
 
-`start-session.sh` verifies the token (a rejected one degrades to offline, it
-never aborts), performs the handshake with the detected executor and
-capabilities, caches the protocol bundle and reporting policy in
-`state/schema.json`, writes `state/session.json` (session id, project id,
-reporting mode, panel URL), starts the background heartbeat, and prints the
+**This project may not be connected, and that is a normal answer.** Reporting
+happens in directories somebody connected on purpose — not in every directory
+an agent is ever started in. `start-session.sh` tells you which case you are in
+through its exit code, and each one has exactly one correct response:
+
+| Exit | Means | What you do |
+| --- | --- | --- |
+| `0` | A session is open. | Report, as below. |
+| `4` | Nobody connected this project. | Say so once — "AgentMagnify is not tracking this project; `npx agentmagnify connect` turns it on" — and **work normally without reporting**. Do not retry, do not run it again this session. |
+| `3` | The server refused: a plan ceiling, a revoked key, a client too old. | **Show the user the message it printed**, verbatim — it names the one thing that fixes it. Then work normally without reporting. Do not retry. |
+| anything else | The API could not be reached. | It queued and printed `offline`. Report as usual; the queue drains later. |
+
+Never invent a fix for exit 3 or 4, never edit files under `~/.agentmagnify`,
+and never re-run the script hoping for a different answer. Exit 3 in
+particular is the case a person needs to see: an account that has run out of
+projects on its plan is a decision for them, not a fault for you to work
+around.
+
+On exit `0`, `start-session.sh` has performed the handshake with the detected
+executor and capabilities, cached the protocol bundle and reporting policy in
+the machine's state directory, written `session.json` (session id, project id,
+reporting mode, panel URL), started the background heartbeat, and printed the
 panel URL — show it to the user once.
 
 Then you owe three things:

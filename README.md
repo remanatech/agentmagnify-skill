@@ -43,12 +43,12 @@ and later:
 ## Then pair the machine, once
 
 ```bash
-bash ~/.claude/skills/agentmagnify/scripts/pair.sh --api-url https://your-agentmagnify-api
+npx agentmagnify pair
 ```
 
 It prints an eight-character code and waits. Open the panel, sign in, type the
 code, check that the screen names this machine and the workspace you meant, and
-approve. No token is displayed for anybody to copy, in either direction.
+approve. No key is displayed for anybody to copy, in either direction.
 
 The other direction exists too, and is the right one for a cloud or otherwise
 ephemeral agent session, where nobody is at the machine's browser: in the
@@ -59,12 +59,33 @@ do, and paste the twelve-character code it gives you into the session —
 /agentmagnify BCDF-GHJK-MNPQ
 ```
 
-in Claude Code, or `bash scripts/pair.sh --code BCDF-GHJK-MNPQ` anywhere else.
-The code is not the token: it is single-use, expires in ten minutes, and the
-token it redeems for is written straight to a `0600` file without ever being
-shown.
+in Claude Code, or `npx agentmagnify pair --code BCDF-GHJK-MNPQ` anywhere else.
+The code is not the key: it is single-use, expires in ten minutes, and the key
+it redeems for is written straight to a `0600` file without ever being shown.
 
-Once paired, agents report as they work — tasks, tests, builds, blockers,
+## And connect each project you want watched
+
+```bash
+npx agentmagnify connect
+```
+
+Reporting happens in projects you connect and in no others. An agent started in
+a directory nobody connected says one line about it and works normally: it does
+not create a project, does not queue anything, and does not spend a slot on
+your plan.
+
+This writes nothing to your repository — the record lives under
+`~/.agentmagnify/projects/`, one small file per project, holding the name it
+reports under and the project id the panel gave it. That id is why renaming the
+directory later keeps one project instead of quietly starting a second. A team
+that wants one shared identity can commit a `.agentmagnify.json` instead; it is
+optional, and it never holds a key.
+
+`npx agentmagnify status` says what this machine is connected to, and
+`npx agentmagnify doctor` checks every step in order and names the one that is
+broken.
+
+Once connected, agents report as they work — tasks, tests, builds, blockers,
 decisions — and upload evidence with `upload-artifact.sh`: screenshots and
 reports land in the panel's storage, and a browser test's screenshots render
 as a numbered, pass/fail-badged step flow under its run.
