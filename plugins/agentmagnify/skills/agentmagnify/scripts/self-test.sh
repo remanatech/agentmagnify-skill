@@ -22,6 +22,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # An isolated state directory: the self-test must never touch a real session.
 TEST_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agentmagnify-selftest.XXXXXX")"
 
+# The project this run reports as.
+#
+# Pinned rather than inferred, because the installer runs this suite from the
+# directory the skill was installed into — and inferring a project from inside
+# the skill's own directory is precisely what the skill refuses to do. Without
+# this, every check that sends an event failed on a machine whose environment
+# did not happen to supply a name, and the installer told people their fresh
+# install could not be trusted. What the project is called here is irrelevant:
+# nothing in this suite reaches a server.
+export AGENTMAGNIFY_PROJECT_NAME="agentmagnify-self-test"
+
 # A syntactically valid but useless token, and an address nothing listens on.
 export AGENTMAGNIFY_STATE_DIR="$TEST_STATE_DIR"
 export AGENTMAGNIFY_TOKEN="prj_live_selftestonlynotreal00"

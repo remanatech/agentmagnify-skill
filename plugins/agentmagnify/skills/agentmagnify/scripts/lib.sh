@@ -51,8 +51,8 @@ AT_DEFAULT_PANEL_URL="https://app.agentmagnify.com"
 # Paths
 # ---------------------------------------------------------------------------
 
-AT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AT_SKILL_ROOT="$(cd "$AT_LIB_DIR/.." && pwd)"
+AT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+AT_SKILL_ROOT="$(cd "$AT_LIB_DIR/.." && pwd -P)"
 AT_REFERENCE_DIR="$AT_SKILL_ROOT/references"
 
 # The state directory and everything under it is defined further down, after
@@ -115,7 +115,7 @@ at_stop_heartbeat() {
 AT_FALLBACK_SCHEMA="$AT_REFERENCE_DIR/fallback-schema.json"
 
 AT_CLIENT_NAME="agentmagnify-skill"
-AT_CLIENT_VERSION="0.3.0"
+AT_CLIENT_VERSION="0.3.1"
 AT_FALLBACK_PROTOCOL_VERSION="2026-07-31.1"
 
 # ---------------------------------------------------------------------------
@@ -338,7 +338,7 @@ AT_ENV_PROJECT_NAME="${AGENTMAGNIFY_PROJECT_NAME:-}"
 # root rather than needing one per package.
 at_find_upwards() {
   local name="$1" dir
-  dir="$(pwd)"
+  dir="$(pwd -P)"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if [ -f "$dir/$name" ]; then
       printf '%s\n' "$dir/$name"
@@ -370,8 +370,14 @@ at_infer_project_name() {
     [ -n "$base" ] && printf '%s\n' "$base" && return 0
   fi
 
-  here="$(pwd)"
-  skill_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+  # `pwd -P`, not `pwd`. The plain builtin answers with $PWD when a parent
+  # exported one, and a parent that starts bash in a directory of its own
+  # choosing exports the directory *it* was in — node's spawnSync does exactly
+  # that. The skill then measured a directory it was not standing in: the guard
+  # below missed, and the project name was inferred from somewhere else
+  # entirely, which is the whole family of bugs this guard exists to stop.
+  here="$(pwd -P)"
+  skill_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)"
 
   if [ -n "$skill_root" ] && { [ "$here" = "$skill_root" ] || case "$here" in "$skill_root"/*) true ;; *) false ;; esac; }; then
     at_error "Refusing to infer a project from inside the skill's own directory ($skill_root)."
@@ -413,7 +419,7 @@ at_project_root() {
   if [ -z "$root" ] && config="$(at_find_upwards "$AT_PROJECT_CONFIG_NAME")"; then
     root="$(dirname "$config")"
   fi
-  [ -n "$root" ] || root="$(pwd)"
+  [ -n "$root" ] || root="$(pwd -P)"
   # With the symlinks followed, because the CLI resolves them too. macOS
   # reaches /private/var through /var and plenty of people keep checkouts under
   # a symlinked home; one directory with two absolute paths is one directory
@@ -500,7 +506,7 @@ AT_STATE_DIR="${AGENTMAGNIFY_STATE_DIR:-$AT_STATE_HOME/$(at_state_key "$(at_proj
 # Dotted numbers only, compared field by field, and a field that is not a plain
 # number counts as zero -- which is right for the one thing this is used for: a
 # prerelease is not newer than the release it precedes, and being wrong about
-# "0.3.0-rc1" costs at most one unprinted upgrade notice.
+# "0.4.0-rc1" costs at most one unprinted upgrade notice.
 at_version_lt() {
   local left="$1" right="$2" index=1 a b
   while [ "$index" -le 4 ]; do
