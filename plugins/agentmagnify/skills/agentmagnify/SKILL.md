@@ -20,16 +20,21 @@ Activate when both are true:
 
 - the session is project work (building, refactoring, testing, shipping), not a
   one-off question;
-- `scripts/login.sh --status` succeeds. Use that command, never an env-var
-  check: `pair.sh` stores the token in a file and exports nothing, so a
-  correctly paired machine has no `AGENTMAGNIFY_TOKEN`.
+- the project has been connected. Do not test this with an env-var check:
+  pairing stores the key in a file and exports nothing, so a correctly paired
+  machine has no `AGENTMAGNIFY_TOKEN`. `start-session.sh` is the check — it
+  answers with the exit codes in §2, and exit 4 means nobody connected this
+  directory.
 
-If no credential resolves, say so once, in one line, and continue working
-normally. Never block on it, never ask repeatedly.
+If it is not connected, or no credential resolves, say so once, in one line —
+naming `npx agentmagnify connect` — and continue working normally. Never block
+on it, never ask repeatedly, and never run it again in the same session hoping
+for a different answer.
 
 **Invoked with a pair code** (`/agentmagnify BCDF-GHJK-MNPQ` — twelve
 characters, three groups): pairing is the task. Run
-`bash scripts/pair.sh --code BCDF-GHJK-MNPQ` before anything else. The code
+`npx agentmagnify pair --code BCDF-GHJK-MNPQ`, then `npx agentmagnify connect`,
+before anything else. The code
 works once and lasts ten minutes; if it fails as expired or used, ask the user
 for a fresh one from the panel's Pair screen. After a successful claim,
 continue with the startup sequence.
@@ -309,10 +314,10 @@ token. Events are *held* (`deadLetterKind: credential` — never discarded, only
 `payload` rejections are), and the next successful `start-session.sh` replays
 them (≤200 per handshake, ≤once per 5 min; events older than 72h are retired
 rather than replayed onto a live timeline). The fix is a credential and
-nothing else: `scripts/pair.sh`, then `scripts/start-session.sh`. Tell the
-user once, plainly: "The monitoring token was refused — expired, revoked, or
-scoped elsewhere. Events are held on this machine; run `scripts/pair.sh` and
-they will be sent." Inspect or force a replay with
+nothing else: `npx agentmagnify pair`, then the next session replays them. Tell
+the user once, plainly: "The monitoring key was refused — expired, revoked, or
+scoped elsewhere. Events are held on this machine; run `npx agentmagnify pair`
+and they will be sent." Inspect or force a replay with
 `flush-pending-events.sh [--dry-run] --replay-dead-letters`.
 
 ## 10. Reference

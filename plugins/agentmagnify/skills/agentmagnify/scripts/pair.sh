@@ -61,7 +61,7 @@ With --code: no waiting and nobody at a browser needed -- the right path for a
 cloud agent session, where somebody at the panel issued the code first.
 
 No panel access at all -- a CI runner, a container? Use a token from the
-panel's Tokens screen instead, through AGENTMAGNIFY_TOKEN or login.sh.
+panel's Agent keys screen instead, through AGENTMAGNIFY_TOKEN or login.sh.
 That path is unchanged and is still the right one there.
 USAGE
 }
@@ -318,7 +318,7 @@ else
   printf 'Token        : %s (%s)\n' "${TOKEN_NAME:-unnamed}" "${TOKEN_KIND:-unknown}"
   printf 'Project name : %s\n' "$AT_PROJECT_NAME"
   printf '\n'
-  printf 'Revoke it from the panel any time; the Tokens screen lists it by that name.\n'
+  printf 'Revoke it from the panel any time; the Agent keys screen lists it by that name.\n'
 
   # Once, at the end of the one command a person runs by hand. Not in the
   # reporting scripts: those run dozens of times a session, and a tool that thanks
